@@ -158,20 +158,63 @@ Znane symbole: SOL, USDC, USDT, BONK, JUP, WETH, JTO, mSOL, WIF, MEW, BOME, PENG
 | pump.fun | `frontend-api.pump.fun` | Nowe memecoiny na Solanie |
 | Solana RPC | `api.mainnet-beta.solana.com` | On-chain data (w Solana skill) |
 
-### DEXScreener — przydatne endpointy
+### DEXScreener — endpointy (v1, April 2026)
 
 ```bash
-# Nowe pary na Solanie (ostatnie 24h)
-curl "https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112"
+# Token data po adresie (300 rpm)
+curl "https://api.dexscreener.com/tokens/v1/solana/<TOKEN_ADDRESS>"
  
-# Szukaj tokena po adresie
-curl "https://api.dexscreener.com/latest/dex/tokens/<TOKEN_ADDRESS>"
+# Para po adresie (300 rpm)
+curl "https://api.dexscreener.com/token-pairs/v1/solana/<TOKEN_ADDRESS>"
  
-# Szukaj po nazwie
+# Szukaj po nazwie/symbolu (300 rpm)
 curl "https://api.dexscreener.com/latest/dex/search?q=<QUERY>"
  
-# Top boosty (trending)
+# Nowe token profiles (60 rpm)
+curl "https://api.dexscreener.com/token-profiles/latest/v1"
+ 
+# Top boosty — trending (60 rpm)
 curl "https://api.dexscreener.com/token-boosts/top/v1"
+ 
+# Trending meta categories (60 rpm)
+curl "https://api.dexscreener.com/metas/trending/v1"
+```
+
+> **Uwaga**: Stary endpoint `/latest/dex/pairs/solana/` już nie istnieje.
+> Zawsze dodawaj header `User-Agent` — bez niego Python urllib dostaje 403.
+
+### Custom Skills — Quick Reference
+
+```bash
+# Scanner: trending, scan, search, metas
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py trending --limit 5
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py scan --min-liq 10000 --max-age 24
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py search "pepe"
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py metas
+ 
+# Analyzer: analyze, safety, holders, liquidity
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py analyze <ADDRESS> --full
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py safety <ADDRESS>
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py holders <ADDRESS> --top 10
+ 
+# Risk Manager: check, status, kill, resume, config, limits
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py status
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py limits
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py check --amount 0.05 --token <ADDR>
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py kill --reason "suspicious"
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py resume
+ 
+# Trade Executor: buy, sell, check-exits, portfolio, mode
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py portfolio
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py buy --token <ADDR> --amount 0.05 --reason "trending"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py sell --id 1 --reason "take profit"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py check-exits
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py mode paper
+ 
+# Trade Journal: add, close, show, stats, export
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py show
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py stats --days 7
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py export
 ```
 
 ### Birdeye — przydatne endpointy
@@ -217,35 +260,39 @@ Custom skills do crypto tradingu powstają z promptów — patrz sekcja Cron.
 
 Hermes ma wbudowany cron scheduler. Konfiguracja przez naturalny język:
 
-### Przykładowe cron jobs (do ustawienia na WSL/VPS)
+### Zainstalowane cron jobs
+
+| Job | Schedule | Co robi |
+|-----|----------|--------|
+| `token-scan` | co 15 min | Skanuje trending, sprawdza safety, paper buy jeśli ok |
+| `position-check` | co 1h | Sprawdza stop-loss/take-profit otwartych pozycji |
+| `trend-analysis` | co 4h | Analiza trendów (metas, kategorie, porównanie z portfolio) |
+| `morning-report` | 8:00 UTC | Raport portfolio + risk status + wczorajsze P&L |
+| `daily-summary` | 23:00 UTC | Podsumowanie dnia: trades, P&L, wnioski |
+| `weekly-recap` | Niedziela 10:00 | Tygodniowa analiza, export, strategia |
+
+### Setup cron
+
+```bash
+# Usuń stary jobs.json (jeśli był zepsuty)
+rm -f ~/.hermes/cron/jobs.json
+ 
+# Wgraj joby
+python3 custom-files/setup-cron.py
+ 
+# Zainstaluj croniter (potrzebny do daily/weekly)
+uv pip install croniter
+```
+
+### Zarządzanie cron (w sesji hermes)
 
 ```
-❯ Co 15 minut skanuj DEXScreener pod nowe tokeny na Solanie z liquidity > $10K
-  i volume > $50K w ostatniej godzinie. Jeśli znajdziesz kandydata — sprawdź
-  kontrakt (mint authority, freeze authority, LP lock), top holders, buy/sell ratio.
-  Jeśli przejdzie filtry — wyślij mi alert na Telegram z analizą.
-
-❯ Co godzinę sprawdź moje otwarte pozycje w Trojan wallet. Jeśli jakaś pozycja
-  jest +50% lub -30% od entry — wyślij mi alert z rekomendacją: hold/sell/add.
-
-❯ Co 4 godziny przeskanuj X/Twitter pod trending crypto topics. Porównaj z moimi
-  watchlistami i otwartymi pozycjami. Jeśli widzisz coś istotnego — alert.
-
-❯ Codziennie o 8:00 wyślij mi na Telegram raport: portfolio value, PnL za 24h,
-  otwarte pozycje z cenami, co dzisiaj obserwować.
-
-❯ Codziennie o 23:00 podsumuj dzień: co kupiłem, co sprzedałem, P&L, co się
-  nauczyłem. Zaktualizuj trade journal. Zapisz wnioski do MEMORY.md.
-
-❯ W niedzielę o 10:00 pełna analiza tygodnia: performance, win rate, avg PnL,
-  najlepsze/najgorsze trades, co poprawić, plan na następny tydzień.
-```
-
-Zarządzanie cron:
-```
-/cronjob list                  # Lista aktywnych jobów
-/cronjob pause <id>            # Wstrzymaj job
-/cronjob remove <id>           # Usuń job
+/cron list                     # Lista aktywnych jobów
+/cron pause <id>               # Wstrzymaj job
+/cron resume <id>              # Wznów job
+/cron run <id>                 # Uruchom ręcznie
+/cron remove <id>              # Usuń job
+/cron add "every 2h" "Check server status" --skill crypto-scanner
 ```
 
 ---
@@ -323,6 +370,6 @@ Merge z upstream (tylko WSL): Zob. `custom-files/docs/#GIT-WORKFLOW.md`.
 | Trojan nie odpowiada | Sprawdź sesję Trojana na TG, sprawdź chat ID w `.env` |
 | Kontekst za długi | `/compress` lub zmniejsz `compression.threshold` |
 | Tool calls nie działają | Upewnij się że model wspiera function calling |
-| Agent nie skanuje | Sprawdź cron: `/cronjob list` |
+| Agent nie skanuje | Sprawdź cron: `/cron list` |
 
 ---
