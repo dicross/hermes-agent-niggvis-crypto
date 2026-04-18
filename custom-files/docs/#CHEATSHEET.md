@@ -13,6 +13,11 @@ hermes --continue              # Wznów ostatnią sesję
 hermes -c                      # Skrócona forma
 ```
 
+Restart gateway przez sudo:
+```bash
+sudo systemctl restart hermes-gateway
+```
+
 ---
 
 ## Kluczowe komendy CLI
