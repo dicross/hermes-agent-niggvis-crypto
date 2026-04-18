@@ -38,7 +38,10 @@ CHAIN = "solana"
 def _get(url: str, retries: int = 2) -> dict | list | None:
     """GET JSON from URL with retries on 429."""
     for attempt in range(retries + 1):
-        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "User-Agent": "hermes-crypto-scanner/1.0",
+        })
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 return json.loads(resp.read().decode())
