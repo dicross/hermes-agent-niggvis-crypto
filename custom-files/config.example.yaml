@@ -1,0 +1,122 @@
+# Hermes Agent Niggvis Crypto — Config Template
+# Skopiuj do ~/.hermes/config.yaml i dostosuj.
+#
+# Pełna dokumentacja: https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+# Oficjalny szablon: cli-config.yaml.example (w katalogu głównym repo)
+ 
+# =============================================================================
+# Model
+# =============================================================================
+model:
+  # --- Opcja 1: Mistral AI (primary — szybki, EU datacenter) ---
+  default: "mistral-large-latest"
+  provider: "mistral"
+  base_url: "https://api.mistral.ai/v1"
+ 
+  # --- Opcja 2: NVIDIA NIM (backup — większy model, darmowe API) ---
+  # default: "meta/llama-3.3-70b-instruct"
+  # provider: "custom"
+  # base_url: "https://integrate.api.nvidia.com/v1"
+ 
+  # --- Opcja 3: Ollama (dev — lokalne modele) ---
+  # default: "gemma4:e4b"
+  # provider: "ollama"
+  # base_url: "http://localhost:11434/v1"
+ 
+# =============================================================================
+# Terminal
+# =============================================================================
+terminal:
+  backend: "local"
+  cwd: "."
+  timeout: 180
+  lifetime_seconds: 300
+ 
+# =============================================================================
+# Agent Behavior
+# =============================================================================
+agent:
+  max_turns: 120
+  verbose: false
+  reasoning_effort: "high"
+ 
+# =============================================================================
+# Memory (podwyższone limity — agent potrzebuje więcej wiedzy crypto)
+# =============================================================================
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+  memory_char_limit: 4000
+  user_char_limit: 2000
+  nudge_interval: 8
+  flush_min_turns: 4
+ 
+# =============================================================================
+# Display
+# =============================================================================
+display:
+  compact: false
+  tool_progress: all
+  streaming: true
+  show_reasoning: false
+  bell_on_complete: false
+  skin: default
+ 
+# =============================================================================
+# Context Compression
+# =============================================================================
+compression:
+  enabled: true
+  threshold: 0.50
+  target_ratio: 0.20
+  protect_last_n: 20
+  # Dla Ollama/lokalnego modelu, rozważ summary przez API:
+  # summary_base_url: "https://api.mistral.ai/v1"
+  # summary_model: "mistral-large-latest"
+ 
+# =============================================================================
+# Skills
+# =============================================================================
+skills:
+  creation_nudge_interval: 10
+ 
+# =============================================================================
+# Platform Toolsets
+# =============================================================================
+platform_toolsets:
+  cli: [hermes-cli]
+  telegram: [hermes-telegram]
+ 
+# =============================================================================
+# Security — WAŻNE DLA TRADINGU
+# =============================================================================
+approvals:
+  mode: manual
+ 
+security:
+  redact_secrets: true
+ 
+# =============================================================================
+# File Read Safety
+# =============================================================================
+file_read_max_chars: 50000
+ 
+# =============================================================================
+# Browser (do skanowania X/Twitter, pump.fun)
+# =============================================================================
+browser:
+  inactivity_timeout: 120
+ 
+# =============================================================================
+# Gateway Streaming (Telegram)
+# =============================================================================
+# streaming:
+#   enabled: false
+ 
+# =============================================================================
+# Voice (opcjonalnie)
+# =============================================================================
+# tts:
+#   provider: "edge"
+#   edge:
+#     voice: "pl-PL-MarekNeural"

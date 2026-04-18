@@ -1,0 +1,328 @@
+# Hermes Agent Niggvis Crypto — Codzienny Cheatsheet
+
+## Szybki start
+
+```bash
+cd ~/projects/hermes-agent-niggvis-crypto
+hermes                         # Start rozmowy
+```
+
+Hermes pamięta sesję — po wyjściu możesz wrócić:
+```bash
+hermes --continue              # Wznów ostatnią sesję
+hermes -c                      # Skrócona forma
+```
+
+---
+
+## Kluczowe komendy CLI
+
+| Komenda | Co robi |
+|---------|---------|
+| `hermes` | Start interaktywnej rozmowy |
+| `hermes model` | Wybór providera i modelu (interaktywny) |
+| `hermes tools` | Konfiguracja narzędzi per platforma |
+| `hermes setup` | Pełny wizard konfiguracji |
+| `hermes config` | Podgląd konfiguracji |
+| `hermes config edit` | Otwórz config.yaml w edytorze |
+| `hermes config set KEY VAL` | Ustaw wartość |
+| `hermes doctor` | Diagnostyka instalacji |
+| `hermes status` | Status konfiguracji |
+| `hermes update` | Aktualizacja do najnowszej wersji |
+| `hermes --continue` | Wznów ostatnią sesję |
+| `hermes gateway` | Start messaging gateway |
+| `hermes gateway setup` | Konfiguracja platform (Telegram) |
+
+---
+
+## Slash commands (w sesji hermes)
+
+| Komenda | Co robi |
+|---------|---------|
+| `/help` | Pokaż wszystkie komendy |
+| `/model [provider:model]` | Zmień model w locie |
+| `/tools` | Lista dostępnych narzędzi |
+| `/personality [nazwa]` | Zmień osobowość |
+| `/skills` | Lista skillów |
+| `/new` lub `/reset` | Nowa rozmowa |
+| `/save` | Zapisz rozmowę |
+| `/compress` | Kompresuj kontekst |
+| `/usage` | Użycie tokenów |
+| `/verbose` | Przełącz poziom logowania narzędzi |
+| `/reasoning [level]` | Ustaw effort: xhigh/high/medium/low/none |
+| `Ctrl+C` | Przerwij bieżące zadanie |
+| `Alt+Enter` | Nowa linia (wieloliniowy input) |
+
+---
+
+## Konfiguracja modeli
+
+### Aktualny setup: Mistral AI (primary)
+
+```yaml
+# ~/.hermes/config.yaml
+model:
+  default: "mistral-large-latest"
+  provider: "mistral"
+  base_url: "https://api.mistral.ai/v1"
+```
+
+### Alternatywa: NVIDIA NIM (backup, większy model)
+
+```yaml
+model:
+  default: "meta/llama-3.3-70b-instruct"
+  provider: "custom"
+  base_url: "https://integrate.api.nvidia.com/v1"
+```
+
+### Alternatywa: Ollama (dev, lokalny)
+
+```yaml
+model:
+  default: "gemma4:e4b"
+  provider: "ollama"
+  base_url: "http://localhost:11434/v1"
+```
+
+### Przełączanie w runtime
+
+```
+/model mistral:mistral-large-latest    # Mistral (primary)
+/model ollama:gemma4:e4b               # Lokalne (dev)
+```
+
+Lub: `hermes model` (interaktywne menu).
+
+---
+
+## Pliki konfiguracyjne
+
+| Plik | Lokalizacja | Rola |
+|------|-------------|------|
+| `config.yaml` | `~/.hermes/config.yaml` | Główna konfiguracja (model, terminal, narzędzia) |
+| `.env` | `~/.hermes/.env` | Klucze API (sekrety) |
+| `SOUL.md` | `~/.hermes/SOUL.md` | Persona Niggvisa (crypto trader) |
+| `MEMORY.md` | `~/.hermes/memories/MEMORY.md` | Wiedza crypto + trade rules |
+| `USER.md` | `~/.hermes/memories/USER.md` | Profil Damiana (agent aktualizuje) |
+
+**Priorytet**: CLI args > config.yaml > .env > domyślne wartości.
+**Zasada**: Sekrety (klucze API) → `.env`. Reszta → `config.yaml`.
+
+---
+
+## Crypto Trading — Quick Reference
+
+### Solana Blockchain Skill
+
+```bash
+# Cena SOL
+python3 ~/.hermes/skills/solana/scripts/solana_client.py price SOL
+ 
+# Portfolio walleta
+python3 ~/.hermes/skills/solana/scripts/solana_client.py wallet <ADDRESS>
+ 
+# Info o tokenie
+python3 ~/.hermes/skills/solana/scripts/solana_client.py token <MINT_ADDRESS>
+ 
+# Whale detector
+python3 ~/.hermes/skills/solana/scripts/solana_client.py whales --min-sol 500
+ 
+# Network stats
+python3 ~/.hermes/skills/solana/scripts/solana_client.py stats
+```
+
+Znane symbole: SOL, USDC, USDT, BONK, JUP, WETH, JTO, mSOL, WIF, MEW, BOME, PENGU.
+
+### Trojan on Solana — Komendy (przez Telegram)
+
+```
+/buy <TOKEN_ADDRESS> <AMOUNT_SOL>      # Kup token za X SOL
+/sell <TOKEN_ADDRESS> <PERCENTAGE>      # Sprzedaj X% pozycji
+/positions                              # Pokaż otwarte pozycje
+/wallet                                 # Saldo walleta
+/settings                               # Ustawienia bota
+/referral                               # Referral info
+```
+
+> Hermes wysyła te komendy do Trojan bota przez Telegram API.
+> Agent NIE zarządza private keys — Trojan to robi.
+
+### Darmowe API do skanowania
+
+| Źródło | Endpoint | Co daje |
+|--------|----------|---------|
+| DEXScreener | `api.dexscreener.com/latest/dex` | Nowe pary, volume, liquidity, price |
+| Birdeye | `public-api.birdeye.so` | Token analytics, trending, OHLCV |
+| CoinGecko | `api.coingecko.com/api/v3` | Ceny, trending, market cap |
+| pump.fun | `frontend-api.pump.fun` | Nowe memecoiny na Solanie |
+| Solana RPC | `api.mainnet-beta.solana.com` | On-chain data (w Solana skill) |
+
+### DEXScreener — przydatne endpointy
+
+```bash
+# Nowe pary na Solanie (ostatnie 24h)
+curl "https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112"
+ 
+# Szukaj tokena po adresie
+curl "https://api.dexscreener.com/latest/dex/tokens/<TOKEN_ADDRESS>"
+ 
+# Szukaj po nazwie
+curl "https://api.dexscreener.com/latest/dex/search?q=<QUERY>"
+ 
+# Top boosty (trending)
+curl "https://api.dexscreener.com/token-boosts/top/v1"
+```
+
+### Birdeye — przydatne endpointy
+
+```bash
+# Trending tokeny na Solanie
+curl -H "X-API-KEY: public" "https://public-api.birdeye.so/defi/tokenlist?sort_by=v24hUSD&sort_type=desc&chain=solana"
+ 
+# Token overview
+curl -H "X-API-KEY: public" "https://public-api.birdeye.so/defi/token_overview?address=<TOKEN_ADDRESS>&chain=solana"
+```
+
+---
+
+## Memory system
+
+Hermes automatycznie zarządza pamięcią:
+- **MEMORY.md** — wiedza agenta (crypto analysis, trade rules, learned patterns)
+- **USER.md** — profil Damiana (preferencje, styl, tolerancja ryzyka)
+
+Agent **samodzielnie aktualizuje** te pliki co ~10 wiadomości.
+
+---
+
+## Skills system
+
+```bash
+# Przeglądaj i instaluj skille
+hermes skills search crypto
+hermes skills search blockchain
+hermes skills install official/blockchain/solana
+ 
+# W sesji:
+/skills                        # Lista zainstalowanych
+```
+
+Agent tworzy nowe skille automatycznie po złożonych zadaniach (~15 tool calls).
+Custom skills do crypto tradingu powstają z promptów — patrz sekcja Cron.
+
+---
+
+## Cron — Scheduled Trading Jobs
+
+Hermes ma wbudowany cron scheduler. Konfiguracja przez naturalny język:
+
+### Przykładowe cron jobs (do ustawienia na WSL/VPS)
+
+```
+❯ Co 15 minut skanuj DEXScreener pod nowe tokeny na Solanie z liquidity > $10K
+  i volume > $50K w ostatniej godzinie. Jeśli znajdziesz kandydata — sprawdź
+  kontrakt (mint authority, freeze authority, LP lock), top holders, buy/sell ratio.
+  Jeśli przejdzie filtry — wyślij mi alert na Telegram z analizą.
+
+❯ Co godzinę sprawdź moje otwarte pozycje w Trojan wallet. Jeśli jakaś pozycja
+  jest +50% lub -30% od entry — wyślij mi alert z rekomendacją: hold/sell/add.
+
+❯ Co 4 godziny przeskanuj X/Twitter pod trending crypto topics. Porównaj z moimi
+  watchlistami i otwartymi pozycjami. Jeśli widzisz coś istotnego — alert.
+
+❯ Codziennie o 8:00 wyślij mi na Telegram raport: portfolio value, PnL za 24h,
+  otwarte pozycje z cenami, co dzisiaj obserwować.
+
+❯ Codziennie o 23:00 podsumuj dzień: co kupiłem, co sprzedałem, P&L, co się
+  nauczyłem. Zaktualizuj trade journal. Zapisz wnioski do MEMORY.md.
+
+❯ W niedzielę o 10:00 pełna analiza tygodnia: performance, win rate, avg PnL,
+  najlepsze/najgorsze trades, co poprawić, plan na następny tydzień.
+```
+
+Zarządzanie cron:
+```
+/cronjob list                  # Lista aktywnych jobów
+/cronjob pause <id>            # Wstrzymaj job
+/cronjob remove <id>           # Usuń job
+```
+
+---
+
+## Safety & Kill Switch
+
+### Zatrzymanie tradingu
+
+```
+❯ /stop                        # Na Telegramie — natychmiast wstrzymaj trading
+❯ Wstrzymaj trading            # Naturalny język — agent zatrzyma wszystkie cron jobs
+```
+
+### Limity (w MEMORY.md + config)
+
+| Limit | Wartość | Opis |
+|-------|---------|------|
+| Max trade size | $5-10 | Na start, zwiększ po udanym paper trading |
+| Daily loss limit | -20% | Jeśli portfel -20% dziennie → stop |
+| Max open positions | 5 | Nie więcej niż 5 tokenów naraz |
+| Min liquidity | $10K | Nie kupuj tokenów z liquidity < $10K |
+| Rugpull check | ZAWSZE | Sprawdź kontrakt przed każdym buy |
+
+### Rugpull Red Flags (agent sprawdza automatycznie)
+
+- ❌ Mint authority NOT revoked
+- ❌ Freeze authority active
+- ❌ LP not locked/burned
+- ❌ Top holder > 20% supply
+- ❌ No social media / website
+- ❌ Age < 1 hour + sudden volume spike
+- ❌ Honeypot (can buy, can't sell)
+
+---
+
+## Telegram Gateway
+
+```bash
+hermes gateway setup           # Konfiguracja Telegram bota
+hermes gateway start           # Start gateway
+```
+
+Po uruchomieniu — rozmawiaj z agentem przez Telegram.
+Agent wysyła alerty, raporty i prosi o potwierdzenie transakcji.
+
+---
+
+## Przed git pull
+
+```bash
+cd ~/projects/hermes-agent-niggvis-crypto
+git pull origin main
+ 
+# Jeśli pyproject.toml się zmienił:
+uv pip install -e ".[all]"
+ 
+# Jeśli SOUL.md lub MEMORY.md się zmienił:
+cp custom-files/SOUL.md ~/.hermes/SOUL.md
+cp custom-files/MEMORY.md ~/.hermes/memories/MEMORY.md
+```
+
+Merge z upstream (tylko WSL): Zob. `custom-files/docs/#GIT-WORKFLOW.md`.
+
+---
+
+## Rozwiązywanie problemów
+
+| Problem | Rozwiązanie |
+|---------|-------------|
+| `hermes: command not found` | `source ~/.bashrc` lub sprawdź `~/.local/bin/hermes` |
+| `uv: command not found` | `curl -LsSf https://astral.sh/uv/install.sh \| sh && source ~/.bashrc` |
+| `API key not set` | Uzupełnij `~/.hermes/.env` |
+| Model za wolny | Przełącz na Mistral/NIM (API) zamiast Ollama |
+| Solana RPC rate limit | Ustaw prywatny RPC: `export SOLANA_RPC_URL=...` |
+| Trojan nie odpowiada | Sprawdź sesję Trojana na TG, sprawdź chat ID w `.env` |
+| Kontekst za długi | `/compress` lub zmniejsz `compression.threshold` |
+| Tool calls nie działają | Upewnij się że model wspiera function calling |
+| Agent nie skanuje | Sprawdź cron: `/cronjob list` |
+
+---

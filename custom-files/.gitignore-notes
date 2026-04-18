@@ -1,0 +1,22 @@
+# .gitignore notes — hermes-agent-niggvis-crypto
+#
+# Główny .gitignore pochodzi z upstream (NousResearch/hermes-agent).
+# Nie modyfikujemy go — sync z upstream byłby problematyczny.
+#
+# Co jest ignorowane domyślnie:
+# - venv/               ← środowisko Python
+# - __pycache__/        ← cache Python
+# - *.pyc               ← skompilowane pliki Python
+# - .env                ← sekrety (ale .env.example commitujemy!)
+# - node_modules/       ← zależności Node.js
+# - *.egg-info/         ← metadata pakietu
+#
+# Co NIE jest ignorowane (commitujemy):
+# - custom-files/       ← nasze pliki (docs, config, SOUL, MEMORY)
+# - custom-files/.env.example ← szablon kluczy (bez wartości!)
+#
+# WAŻNE:
+# - ~/.hermes/ to katalog per maszyna — NIE jest w repo
+# - Nie commituj prawdziwych kluczy API
+# - custom-files/SOUL.md i MEMORY.md to szablony bazowe
+#   (agent aktualizuje swoje kopie w ~/.hermes/)
