@@ -29,8 +29,7 @@ JOBS_FILE = CRON_DIR / "jobs.json"
 JOBS = [
     {
         "name": "token-scan",
-        "schedule_display": "every 15m",
-        "schedule": {"kind": "interval", "minutes": 15, "display": "every 15m"},
+        "schedule": "every 15m",
         "skills": ["crypto-scanner", "onchain-analyzer", "trade-executor", "risk-manager", "trade-journal"],
         "prompt": (
             "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10, "
@@ -41,8 +40,7 @@ JOBS = [
     },
     {
         "name": "position-check",
-        "schedule_display": "every 60m",
-        "schedule": {"kind": "interval", "minutes": 60, "display": "every 60m"},
+        "schedule": "every 60m",
         "skills": ["trade-executor", "trade-journal", "crypto-scanner"],
         "prompt": (
             "Check all open positions for exit signals. Use trade-executor check-exits. "
@@ -52,8 +50,7 @@ JOBS = [
     },
     {
         "name": "trend-analysis",
-        "schedule_display": "every 240m",
-        "schedule": {"kind": "interval", "minutes": 240, "display": "every 240m"},
+        "schedule": "every 240m",
         "skills": ["crypto-scanner", "trade-journal"],
         "prompt": (
             "Run a market trend analysis. Use crypto-scanner metas to check trending categories. "
@@ -64,8 +61,7 @@ JOBS = [
     },
     {
         "name": "morning-report",
-        "schedule_display": "0 8 * * *",
-        "schedule": {"kind": "cron", "expr": "0 8 * * *", "display": "0 8 * * *"},
+        "schedule": "0 8 * * *",
         "skills": ["trade-executor", "risk-manager", "trade-journal"],
         "prompt": (
             "Morning portfolio report. Run trade-executor portfolio to show all positions with "
@@ -76,8 +72,7 @@ JOBS = [
     },
     {
         "name": "daily-summary",
-        "schedule_display": "0 23 * * *",
-        "schedule": {"kind": "cron", "expr": "0 23 * * *", "display": "0 23 * * *"},
+        "schedule": "0 23 * * *",
         "skills": ["trade-journal", "trade-executor", "risk-manager", "crypto-scanner"],
         "prompt": (
             "End of day trading summary. Run trade-journal stats --days 1 for today's trades. "
@@ -88,8 +83,7 @@ JOBS = [
     },
     {
         "name": "weekly-recap",
-        "schedule_display": "0 10 * * 0",
-        "schedule": {"kind": "cron", "expr": "0 10 * * 0", "display": "0 10 * * 0"},
+        "schedule": "0 10 * * 0",
         "skills": ["trade-journal", "trade-executor", "risk-manager", "crypto-scanner"],
         "prompt": (
             "Weekly trading recap. Run trade-journal stats --days 7. Analyze: total P&L, win rate, "
@@ -101,27 +95,34 @@ JOBS = [
 ]
 
 # ---------------------------------------------------------------------------
-# Logic
+# Schedule parsing (matches Hermes cron/jobs.py format exactly)
 # ---------------------------------------------------------------------------
 
-
-def load_jobs() -> list:
-    if not JOBS_FILE.exists():
-        return []
-    with open(JOBS_FILE, "r") as f:
-        return json.load(f)
+import re
 
 
-def save_jobs(jobs: list):
-    CRON_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = str(JOBS_FILE) + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(jobs, f, indent=2, default=str)
-    os.replace(tmp, str(JOBS_FILE))
-    try:
-        os.chmod(str(JOBS_FILE), 0o600)
-    except OSError:
-        pass
+def parse_schedule(schedule_str: str) -> dict:
+    """Parse schedule string into Hermes-compatible format."""
+    s = schedule_str.strip()
+    s_lower = s.lower()
+
+    # "every Xm/h/d" → interval
+    if s_lower.startswith("every "):
+        duration = s[6:].strip().lower()
+        match = re.match(r'^(\d+)\s*(m|h|d)', duration)
+        if match:
+            value = int(match.group(1))
+            unit = match.group(2)
+            multipliers = {'m': 1, 'h': 60, 'd': 1440}
+            minutes = value * multipliers[unit]
+            return {"kind": "interval", "minutes": minutes, "display": f"every {minutes}m"}
+
+    # Cron expression (5 space-separated fields)
+    parts = s.split()
+    if len(parts) >= 5 and all(re.match(r'^[\d\*\-,/]+$', p) for p in parts[:5]):
+        return {"kind": "cron", "expr": s, "display": s}
+
+    raise ValueError(f"Cannot parse schedule: {s}")
 
 
 def compute_next_run(schedule: dict) -> str:
@@ -129,39 +130,77 @@ def compute_next_run(schedule: dict) -> str:
     kind = schedule.get("kind")
     if kind == "interval":
         minutes = schedule.get("minutes", 15)
-        next_run = now + timedelta(minutes=minutes)
+        return (now + timedelta(minutes=minutes)).isoformat()
     elif kind == "cron":
-        # Simple next-run calculation without croniter
-        # Just set it to now + 1 minute, the scheduler will compute the real next
-        next_run = now + timedelta(minutes=1)
-    else:
-        next_run = now + timedelta(minutes=1)
-    return next_run.isoformat()
+        # Without croniter, approximate — scheduler will fix it
+        return (now + timedelta(minutes=1)).isoformat()
+    return (now + timedelta(minutes=1)).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Logic (matches Hermes jobs.json format: {"jobs": [...]})
+# ---------------------------------------------------------------------------
+
+
+def load_jobs() -> list:
+    if not JOBS_FILE.exists():
+        return []
+    with open(JOBS_FILE, "r") as f:
+        data = json.load(f)
+    # Hermes format: {"jobs": [...], "updated_at": "..."}
+    if isinstance(data, dict):
+        return data.get("jobs", [])
+    # Fallback: bare list (shouldn't happen with correct format)
+    if isinstance(data, list):
+        return data
+    return []
+
+
+def save_jobs(jobs: list):
+    CRON_DIR.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+    tmp = str(JOBS_FILE) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"jobs": jobs, "updated_at": now}, f, indent=2, default=str)
+    os.replace(tmp, str(JOBS_FILE))
+    try:
+        os.chmod(str(JOBS_FILE), 0o600)
+    except OSError:
+        pass
 
 
 def make_job(definition: dict) -> dict:
-    now = datetime.now(timezone.utc)
-    job_id = str(uuid.uuid4())
+    """Create a job dict matching Hermes cron/jobs.py create_job() output."""
+    now = datetime.now(timezone.utc).isoformat()
+    job_id = uuid.uuid4().hex[:12]
+    schedule = parse_schedule(definition["schedule"])
+    skills = definition["skills"]
+
     return {
         "id": job_id,
         "name": definition["name"],
         "prompt": definition["prompt"],
-        "schedule": definition["schedule"],
-        "state": "active",
-        "skills": definition["skills"],
-        "skill": definition["skills"][0] if definition["skills"] else None,
-        "repeat": None,
-        "deliver": None,
-        "origin": None,
+        "skills": skills,
+        "skill": skills[0] if skills else None,
         "model": None,
         "provider": None,
         "base_url": None,
         "script": None,
-        "created_at": now.isoformat(),
-        "next_run_at": compute_next_run(definition["schedule"]),
+        "schedule": schedule,
+        "schedule_display": schedule.get("display", definition["schedule"]),
+        "repeat": {"times": None, "completed": 0},
+        "enabled": True,
+        "state": "scheduled",
+        "paused_at": None,
+        "paused_reason": None,
+        "created_at": now,
+        "next_run_at": compute_next_run(schedule),
         "last_run_at": None,
         "last_status": None,
-        "run_count": 0,
+        "last_error": None,
+        "last_delivery_error": None,
+        "deliver": "local",
+        "origin": None,
     }
 
 
@@ -182,7 +221,7 @@ def main():
         else:
             job = make_job(defn)
             existing.append(job)
-            print(f"  ✅ {name} — created ({defn['schedule_display']})")
+            print(f"  ✅ {name} — created ({defn['schedule']})")
             added += 1
 
     save_jobs(existing)
@@ -195,12 +234,12 @@ def main():
     print(f"   # or as service:")
     print(f"   hermes gateway install")
 
-    # Also ensure croniter is installed (needed for cron expressions)
+    # croniter check
     try:
         import croniter
         print(f"\n   ✅ croniter installed")
     except ImportError:
-        print(f"\n   ⚠️  croniter not installed! Cron expressions won't work.")
+        print(f"\n   ⚠️  croniter not installed — cron expressions (daily/weekly) won't fire.")
         print(f"   Fix: pip install croniter")
 
 
