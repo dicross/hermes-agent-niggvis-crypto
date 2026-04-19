@@ -429,8 +429,19 @@ def cmd_check_exits(args):
             print(f"       🚨 STOP LOSS triggered ({pnl_pct:.1f}% <= {sl_pct}%)")
 
         elif pnl_pct >= tp_pct:
-            alerts.append({"id": t["id"], "token": t["token"], "type": "TAKE_PROFIT", "pnl": pnl_pct})
-            print(f"       🎯 TAKE PROFIT target reached ({pnl_pct:.1f}% >= +{tp_pct}%)")
+            trail = float(trailing)
+            peak = float(t.get("peak_pnl_pct", 0))
+            if pnl_pct > peak:
+                peak = pnl_pct
+            drop = peak - pnl_pct
+            if trail > 0 and drop < trail:
+                print(f"       🚀 ABOVE TP — trailing active (peak {peak:+.1f}%, drop {drop:.1f}%, trail at {trail}%)")
+            else:
+                alerts.append({"id": t["id"], "token": t["token"], "type": "TAKE_PROFIT", "pnl": pnl_pct})
+                if trail > 0:
+                    print(f"       📉 TRAILING STOP triggered ({pnl_pct:.1f}%, peak {peak:.1f}%, drop {drop:.1f}% >= {trail}%)")
+                else:
+                    print(f"       🎯 TAKE PROFIT target reached ({pnl_pct:.1f}% >= +{tp_pct}%)")
 
     if alerts:
         print(f"\n⚡ {len(alerts)} exit signal(s):")

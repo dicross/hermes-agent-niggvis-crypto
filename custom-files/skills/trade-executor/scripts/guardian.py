@@ -316,10 +316,12 @@ def check_positions(dry_run: bool = False) -> list:
 
     sl_pct = _cfg(tcfg, "risk", "stop_loss_pct", default=-30)
     tp_pct = _cfg(tcfg, "risk", "take_profit_pct", default=100)
+    trail_pct = float(_cfg(tcfg, "risk", "trailing_stop_pct", default=0))
     kill = _cfg(tcfg, "risk", "kill_switch", default=False)
     mode = _cfg(tcfg, "mode", default="paper")
 
     actions = []
+    journal_dirty = False
 
     for t in open_trades:
         addr = t.get("address", "")
@@ -357,23 +359,51 @@ def check_positions(dry_run: bool = False) -> list:
 
             actions.append({"type": "STOP_LOSS", "id": t["id"], "pnl": pnl_pct})
 
-        # Take-profit check
+        # Take-profit / trailing stop check
         elif pnl_pct >= tp_pct:
-            action = f"TAKE_PROFIT #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit +{tp_pct}%)"
-            log(f"  🎯 {action}")
-
-            if not dry_run:
-                if mode == "real":
-                    _execute_jupiter_sell(addr)
-                t["status"] = "closed"
-                t["exit_price"] = price
-                t["exit_time"] = datetime.now(timezone.utc).isoformat()
-                t["exit_reason"] = f"Guardian auto-take-profit ({pnl_pct:.1f}%)"
-                t["pnl_pct"] = round(pnl_pct, 2)
-                t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)")
-
-            actions.append({"type": "TAKE_PROFIT", "id": t["id"], "pnl": pnl_pct})
+            # Trailing stop enabled: track peak and sell on pullback
+            if trail_pct > 0:
+                peak = float(t.get("peak_pnl_pct", 0))
+                # Update peak if current P&L is higher
+                if pnl_pct > peak:
+                    t["peak_pnl_pct"] = round(pnl_pct, 2)
+                    peak = pnl_pct
+                    journal_dirty = True
+                 
+                drop_from_peak = peak - pnl_pct
+                if drop_from_peak >= trail_pct:
+                    # Trailing stop triggered — sell
+                    action = f"TRAILING_STOP #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (peak {peak:+.1f}%, trail -{trail_pct}%)"
+                    log(f"  📉 {action}")
+                    if not dry_run:
+                        if mode == "real":
+                            _execute_jupiter_sell(addr)
+                        t["status"] = "closed"
+                        t["exit_price"] = price
+                        t["exit_time"] = datetime.now(timezone.utc).isoformat()
+                        t["exit_reason"] = f"Guardian trailing-stop (peak {peak:.1f}%, drop {drop_from_peak:.1f}%)"
+                        t["pnl_pct"] = round(pnl_pct, 2)
+                        t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
+                        log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% (peak was {peak:+.1f}%)")
+                    actions.append({"type": "TRAILING_STOP", "id": t["id"], "pnl": pnl_pct, "peak": peak})
+                else:
+                    # Still riding — log status with peak
+                    log(f"  🚀 #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (peak {peak:+.1f}%, trail in {trail_pct - drop_from_peak:.1f}%)")
+            else:
+                # No trailing — instant take-profit (old behavior)
+                action = f"TAKE_PROFIT #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit +{tp_pct}%)"
+                log(f"  🎯 {action}")
+                if not dry_run:
+                    if mode == "real":
+                        _execute_jupiter_sell(addr)
+                    t["status"] = "closed"
+                    t["exit_price"] = price
+                    t["exit_time"] = datetime.now(timezone.utc).isoformat()
+                    t["exit_reason"] = f"Guardian auto-take-profit ({pnl_pct:.1f}%)"
+                    t["pnl_pct"] = round(pnl_pct, 2)
+                    t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
+                    log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)")
+                actions.append({"type": "TAKE_PROFIT", "id": t["id"], "pnl": pnl_pct})
 
         # Kill switch — sell everything
         elif kill:
@@ -394,8 +424,8 @@ def check_positions(dry_run: bool = False) -> list:
             icon = "🟢" if pnl_pct >= 0 else "🔴"
             log(f"  {icon} #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}%")
 
-    # Save if any changes
-    if actions and not dry_run:
+    # Save if any changes (sells or peak_pnl updates)
+    if (actions or journal_dirty) and not dry_run:
         save_json(JOURNAL_PATH, journal)
 
     return actions
