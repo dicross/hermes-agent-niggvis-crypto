@@ -1,9 +1,9 @@
 {
   "jobs": [
     {
-      "id": "e813cdeade31",
+      "id": "51f4e33c6164",
       "name": "token-scan",
-      "prompt": "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10, then for the top 3 run onchain-analyzer safety. Report any token with safety score >= 60 and liquidity > $10k. If you find a good candidate, run the full pipeline: analyze -> risk check -> paper buy if approved. Be concise.",
+      "prompt": "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10, then for the top 3 run onchain-analyzer safety. Report any token with safety score >= 60 and liquidity > $10k. If you find a good candidate, run the full pipeline: analyze -> risk check -> buy if approved. Position size is auto-calculated from trading-config.yaml. Mode (paper/real) is read from config. Be concise.",
       "skills": [
         "crypto-scanner",
         "onchain-analyzer",
@@ -24,25 +24,25 @@
       "schedule_display": "every 15m",
       "repeat": {
         "times": null,
-        "completed": 38
+        "completed": 0
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-04-18T13:15:20.104025+00:00",
-      "next_run_at": "2026-04-19T11:08:20.576401+02:00",
-      "last_run_at": "2026-04-19T03:21:34.478332+02:00",
-      "last_status": "ok",
+      "created_at": "2026-04-19T13:46:23.391670+00:00",
+      "next_run_at": "2026-04-19T16:52:17.028124+02:00",
+      "last_run_at": null,
+      "last_status": null,
       "last_error": null,
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null
     },
     {
-      "id": "2375a1c65cd0",
+      "id": "bac772194cbd",
       "name": "position-check",
-      "prompt": "Check all open positions for exit signals. Use trade-executor check-exits. If any stop-loss is triggered, execute the sell immediately. For take-profit signals, evaluate if we should hold or sell based on current momentum. Report results.",
+      "prompt": "Check all open positions for exit signals. Use trade-executor check-exits. If any stop-loss is triggered, execute the sell immediately (Jupiter sell in real mode). For take-profit signals, evaluate if we should hold or sell based on current momentum. Also run trade-executor portfolio to show wallet balance and position summary. Report results.",
       "skills": [
         "trade-executor",
         "trade-journal",
@@ -55,29 +55,29 @@
       "script": null,
       "schedule": {
         "kind": "interval",
-        "minutes": 60,
-        "display": "every 60m"
+        "minutes": 30,
+        "display": "every 30m"
       },
-      "schedule_display": "every 60m",
+      "schedule_display": "every 30m",
       "repeat": {
         "times": null,
-        "completed": 11
+        "completed": 0
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-04-18T13:15:20.104282+00:00",
-      "next_run_at": "2026-04-19T11:53:20.576401+02:00",
-      "last_run_at": "2026-04-19T03:31:55.034352+02:00",
-      "last_status": "ok",
+      "created_at": "2026-04-19T13:46:23.391854+00:00",
+      "next_run_at": "2026-04-19T17:07:17.028124+02:00",
+      "last_run_at": null,
+      "last_status": null,
       "last_error": null,
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null
     },
     {
-      "id": "d8efeceb3cb6",
+      "id": "bf06282de44b",
       "name": "trend-analysis",
       "prompt": "Run a market trend analysis. Use crypto-scanner metas to check trending categories. Then crypto-scanner trending --limit 20 for top movers. Identify which categories are hot (AI, meme, gaming, DeFi). Compare with our open positions - are we aligned with trends? Write a brief trend report.",
       "skills": [
@@ -97,23 +97,23 @@
       "schedule_display": "every 240m",
       "repeat": {
         "times": null,
-        "completed": 3
+        "completed": 0
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-04-18T13:15:20.104347+00:00",
-      "next_run_at": "2026-04-19T14:53:20.576401+02:00",
-      "last_run_at": "2026-04-19T03:20:09.022420+02:00",
-      "last_status": "ok",
+      "created_at": "2026-04-19T13:46:23.391916+00:00",
+      "next_run_at": "2026-04-19T17:46:23.391939+00:00",
+      "last_run_at": null,
+      "last_status": null,
       "last_error": null,
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null
     },
     {
-      "id": "3156510ab235",
+      "id": "a57b63343975",
       "name": "morning-report",
       "prompt": "Morning portfolio report. Run trade-executor portfolio to show all positions with live prices. Then risk-manager status for risk dashboard. Then trade-journal stats --days 1 for yesterday's performance. Summarize: open positions, unrealized P&L, daily P&L, budget usage, any concerns.",
       "skills": [
@@ -134,25 +134,25 @@
       "schedule_display": "0 8 * * *",
       "repeat": {
         "times": null,
-        "completed": 1
+        "completed": 0
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-04-18T13:15:20.104404+00:00",
+      "created_at": "2026-04-19T13:46:23.391978+00:00",
       "next_run_at": "2026-04-20T08:00:00+02:00",
-      "last_run_at": "2026-04-18T15:21:11.050091+02:00",
-      "last_status": "ok",
+      "last_run_at": null,
+      "last_status": null,
       "last_error": null,
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null
     },
     {
-      "id": "29ad6adf0c61",
+      "id": "2dad5e4d2d00",
       "name": "daily-summary",
-      "prompt": "End of day trading summary. Run trade-journal stats --days 1 for today's trades. Check trade-executor portfolio for open positions. Run risk-manager status. Write a daily recap: trades made, wins/losses, lessons learned, what to watch tomorrow. If daily loss limit was approached, flag it.",
+      "prompt": "End of day trading summary with self-learning. Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update` to analyze trades and update MEMORY.md with new patterns. Step 2: Run trade-journal stats --days 1. Step 3: Check trade-executor portfolio. Step 4: Run risk-manager status. Step 5: Read the output from learning.py \u2014 what patterns were discovered? Write a daily recap: trades, P&L, lessons learned, discovered patterns, what to watch tomorrow. Step 6: If any pattern has confidence HIGH, update risk-manager config accordingly (e.g. raise min_safety_score). If daily loss limit was approached, flag it.",
       "skills": [
         "trade-journal",
         "trade-executor",
@@ -172,25 +172,25 @@
       "schedule_display": "0 23 * * *",
       "repeat": {
         "times": null,
-        "completed": 2
+        "completed": 0
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-04-18T13:15:20.104526+00:00",
+      "created_at": "2026-04-19T13:46:23.392103+00:00",
       "next_run_at": "2026-04-19T23:00:00+02:00",
-      "last_run_at": "2026-04-18T23:06:15.614800+02:00",
-      "last_status": "ok",
+      "last_run_at": null,
+      "last_status": null,
       "last_error": null,
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null
     },
     {
-      "id": "08e6cf8e5bb5",
+      "id": "346ed8b7f635",
       "name": "weekly-recap",
-      "prompt": "Weekly trading recap. Run trade-journal stats --days 7. Analyze: total P&L, win rate, best/worst trades, average hold time, which token categories performed best. Compare paper vs real results. Identify patterns - what worked, what didn't. Suggest adjustments to strategy for next week. Export trades: trade-journal export.",
+      "prompt": "Weekly trading recap with deep learning review. Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update --days 7` to refresh MEMORY.md. Step 2: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns` to see all discovered patterns. Step 3: Run trade-journal stats --days 7. Export trades: trade-journal export. Step 4: Analyze: total P&L, win rate, best/worst trades, avg hold time, which signals worked. Step 5: Review trade execution quality (slippage, timing). Step 6: Based on patterns, suggest specific changes to risk-manager config (min_safety_score, stop_loss_pct, take_profit_min_pct). Step 7: Update MEMORY.md 'Known Patterns' section with new bullish/bearish signals. Step 8: If win rate <40%, tighten filters. If >60%, consider loosening slightly.",
       "skills": [
         "trade-journal",
         "trade-executor",
@@ -210,21 +210,21 @@
       "schedule_display": "0 10 * * 0",
       "repeat": {
         "times": null,
-        "completed": 2
+        "completed": 0
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
-      "created_at": "2026-04-18T13:15:20.104588+00:00",
-      "next_run_at": "2026-04-26T10:00:00+02:00",
-      "last_run_at": "2026-04-19T11:04:20.001983+02:00",
-      "last_status": "ok",
+      "created_at": "2026-04-19T13:46:23.392163+00:00",
+      "next_run_at": "2026-04-19T13:47:23.392188+00:00",
+      "last_run_at": null,
+      "last_status": null,
       "last_error": null,
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null
     }
   ],
-  "updated_at": "2026-04-19T11:04:20.003183+02:00"
+  "updated_at": "2026-04-19T16:37:17.037675+02:00"
 }

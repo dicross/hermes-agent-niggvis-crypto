@@ -16,7 +16,7 @@ Log trades, track P&L, analyze performance, and identify patterns.
 Stores data in `~/.hermes/memories/trade-journal.json`.
 5 commands: add, close, show, stats, export.
 
-No external packages required — uses only Python standard library. Enhanced with real-time on-chain validation via DEXScreener API integration during trade analysis (e.g., checking liquidity, volume, and social signals before closing positions).
+No external packages required — uses only Python standard library.
 
 ---
 
@@ -27,7 +27,6 @@ No external packages required — uses only Python standard library. Enhanced wi
 - User asks "how am I doing?", "win rate", "show trades"
 - Daily/weekly recap — run stats for performance summary
 - User wants to export trade history
-- **After any trade, review on-chain data (DEXScreener, Solscan) and update entry_reason with key signals** — this turns the journal into a live learning engine.
 
 ---
 
@@ -85,7 +84,7 @@ python3 ~/.hermes/skills/trade-journal/scripts/journal.py stats
 python3 ~/.hermes/skills/trade-journal/scripts/journal.py stats --days 7
 ```
 
-Output: total trades, win rate, avg P&L, total P&L, best/worst trade, avg hold time, and **real vs paper trade breakdown**.
+Output: total trades, win rate, avg P&L, total P&L, best/worst trade, avg hold time.
 
 ### 5. Export
 
@@ -93,7 +92,7 @@ Output: total trades, win rate, avg P&L, total P&L, best/worst trade, avg hold t
 python3 ~/.hermes/skills/trade-journal/scripts/journal.py export --format csv
 ```
 
-Exports full journal with **paper/real flags**, **entry/exit timestamps**, and **on-chain analysis notes** (e.g., 'liquidity > $50K', 'smart money detected') from entry_reason field.
+---
 
 ## Pitfalls
 
@@ -101,7 +100,6 @@ Exports full journal with **paper/real flags**, **entry/exit timestamps**, and *
 - **P&L calculation**: based on entry/exit price × amount. Does not account for fees/slippage.
 - **Paper vs real**: paper trades are flagged separately in stats.
 - **Trade IDs**: auto-incrementing integers, unique per journal.
-- **On-chain context**: entry_reason should include key on-chain metrics (liquidity, volume, holders, contract status) — this data is critical for retrospective analysis and is preserved in exports.
 
 ---
 

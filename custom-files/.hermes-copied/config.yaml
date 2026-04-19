@@ -2,6 +2,7 @@ model:
   default: qwen/qwen3-next-80b-a3b-instruct
   provider: nvidia
   base_url: https://integrate.api.nvidia.com/v1
+  api_key: ${NVIDIA_API_KEY}
 providers: {}
 fallback_providers: []
 credential_pool_strategies: {}
@@ -269,7 +270,8 @@ custom_providers:
   base_url: https://api.mistral.ai/v1
   # api_key: mA8VZlJMyW57aKTtCZ3mQ9o2XSc6WdbB
   api_key: ${MISTRAL_API_KEY}
-  model: magistral-medium-latest
+  # model: magistral-medium-latest
+  model: mistral-large-latest
 
 # ── Fallback Model ────────────────────────────────────────────────────
 # Automatic provider failover when primary is unavailable.
@@ -290,7 +292,8 @@ custom_providers:
 #
 fallback_model:
   provider: custom
-  model: magistral-medium-latest
+  # model: magistral-medium-latest
+  model: mistral-medium-latest
   base_url: https://api.mistral.ai/v1
   key_env: ${MISTRAL_API_KEY}              # env var name containing the API key
 #

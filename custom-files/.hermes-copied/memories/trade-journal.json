@@ -2,7 +2,7 @@
   "trades": [
     {
       "id": 1,
-      "status": "open",
+      "status": "closed",
       "paper": true,
       "token": "EUPHORIA",
       "address": "2NKw8DMyzu9hh8qbKxmjn3bUukcaZdwSDa6HDhEMpump",
@@ -10,11 +10,11 @@
       "entry_price": 0.0001141,
       "entry_time": "2026-04-18T13:42:42.467518+00:00",
       "entry_reason": "Trending #3, 68/100 safety (full analysis), 8K liq, website+socials verified, 21h old, mint/freeze revoked",
-      "exit_price": null,
-      "exit_time": null,
-      "exit_reason": null,
-      "pnl_pct": null,
-      "pnl_sol": null
+      "exit_price": 7.661e-05,
+      "exit_time": "2026-04-19T12:28:50.972933+00:00",
+      "exit_reason": "Guardian auto-stop-loss (-32.9%)",
+      "pnl_pct": -32.86,
+      "pnl_sol": -0.016429
     },
     {
       "id": 2,
@@ -66,7 +66,7 @@
     },
     {
       "id": 5,
-      "status": "open",
+      "status": "closed",
       "paper": true,
       "token": "UNCEROID",
       "address": "BiBMG42BrmvJE5gY5UCXLURroGR6tBC1gfcYbZuEpump",
@@ -74,11 +74,11 @@
       "entry_price": 0.002405,
       "entry_time": "2026-04-18T16:19:02.827442+00:00",
       "entry_reason": "Trending on DEX, safety score 70, liquidity 34K",
-      "exit_price": null,
-      "exit_time": null,
-      "exit_reason": null,
-      "pnl_pct": null,
-      "pnl_sol": null
+      "exit_price": 0.001625,
+      "exit_time": "2026-04-19T12:55:52.148727+00:00",
+      "exit_reason": "Guardian auto-stop-loss (-32.4%)",
+      "pnl_pct": -32.43,
+      "pnl_sol": -0.016216
     },
     {
       "id": 6,

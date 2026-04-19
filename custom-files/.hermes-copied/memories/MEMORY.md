@@ -349,3 +349,28 @@ Reason: [dlaczego wszedłem — konkretne sygnały]
 - Mixed signals (bullish on-chain, bearish social) → skip lub micro position
 
 ---
+
+
+## Learned Patterns (2026-04-19) — Auto-generated
+
+Based on 5 closed trades (1W/4L, 20% win rate).
+
+### Insights
+- Win rate: 20% (1W/4L)
+- Avg win: +188.6% | Avg loss: -45.0%
+- Net P&L: +0.004249 SOL
+- Avg hold (wins): 2.7h | Avg hold (losses): 12.4h
+- Higher safety scores correlate with wins (avg 70 vs 65)
+- ⚠️ 2 trades exceeded stop-loss limit — position monitor too slow
+
+### Actionable Rules
+- [HIGH] Use guardian.py --watch for real-time stop-loss (not hourly cron)
+  - Evidence: 2 trades lost more than -35% before hourly check
+- [MEDIUM] AVOID tokens where 'trending' is the main signal (20% win rate)
+  - Evidence: 1 wins, 4 losses
+- [MEDIUM] AVOID tokens where 'safety' is the main signal (20% win rate)
+  - Evidence: 1 wins, 4 losses
+- [LOW] AVOID tokens where 'liquidity' is the main signal (25% win rate)
+  - Evidence: 1 wins, 3 losses
+
+_Last updated: 2026-04-19T14:38:17.003388+00:00_

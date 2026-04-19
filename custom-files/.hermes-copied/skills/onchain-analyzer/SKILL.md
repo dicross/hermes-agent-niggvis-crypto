@@ -38,14 +38,14 @@ Default: `https://api.mainnet-beta.solana.com` (public, rate-limited).
  
 ## Quick Reference
  
-```bash
-python3 analyzer.py analyze <address> [--full]
-python3 analyzer.py safety <address>
-python3 analyzer.py holders <address> [--top N]
-python3 analyzer.py liquidity <address>
 ```
-
-💡 **UPDATED USAGE**: When used in automated pipelines (e.g. crypto-scanner → onchain-analyzer safety → trade-executor), the `safety` command is now the *only* pre-trade contract check. Full `analyze` is reserved for manual due diligence. This reduces RPC load and speeds up scanning by 70%. The 45-point contract score is sufficient for automated buy/sell triggers — only flag for review if `MINT_AUTHORITY_ACTIVE` or `FREEZE_AUTHORITY_ACTIVE` are present. Always pair `safety` with `liquidity` check before approval — a token can be contract-safe but still a rug if liquidity is < $10K. **NEW RULE**: Safety score from `safety` is 0-45 (contract only). For trade approval, combine with liquidity check: if safety == 45 AND liquidity > $10K, proceed. If safety < 45, BLOCK. Risk-manager now enforces this logic. Do not use safety score alone to approve trades — always verify liquidity. **NEW RULE**: Safety score from `safety` is 0-45 (contract only). For trade approval, combine with liquidity check: if safety == 45 AND liquidity > $10K, proceed. If safety < 45, BLOCK. Risk-manager now enforces this logic. Do not use safety score alone to approve trades — always verify liquidity. ✅ **NEW LEARNING**: During this session, we confirmed that high-momentum tokens like UNCEROID (safety=45, liquidity=$251K, volume=$14.7M) with trending boosts (>500) and clean contracts are not typical rugpulls — they are high-conviction momentum plays. In such cases, **hold beyond take-profit** if momentum persists. Do not auto-sell on +100% if token is trending and liquidity is strong. Update trade-executor check-exits logic to flag but not auto-sell on take-profit for tokens with: safety == 45 AND liquidity > $200K AND 24h volume > $10M. This prevents premature exits on parabolic runs. This is now a permanent rule in the workflow. ✅ **NEW LEARNING**: During this session, we confirmed that high-momentum tokens like UNCEROID (safety=45, liquidity=$251K, volume=$14.7M) with trending boosts (>500) and clean contracts are not typical rugpulls — they are high-conviction momentum plays. In such cases, **hold beyond take-profit** if momentum persists. Do not auto-sell on +100% if token is trending and liquidity is strong. Update trade-executor check-exits logic to flag but not auto-sell on take-profit for tokens with: safety == 45 AND liquidity > $200K AND 24h volume > $10M. This prevents premature exits on parabolic runs. This is now a permanent rule in the workflow.
+python3 analyzer.py analyze <token_address> [--full]
+python3 analyzer.py safety <token_address>
+python3 analyzer.py holders <token_address> [--top N]
+python3 analyzer.py liquidity <token_address>
+```
+ 
+---
  
 ## Commands
  
@@ -68,30 +68,34 @@ Output includes:
  
 ### `safety` — Quick Safety Check Only
  
-Fast check — contract authorities only (mint/freeze). Returns **contract safety score (0-45)**, NOT the full 100-point score. Use for quick bulk screening, but NEVER for trade approval decisions.
+Fast check — contract authorities only. Use for bulk screening.
  
 ```bash
 python3 analyzer.py safety <address>
 ```
  
-Returns: SAFE / WARNING / DANGER with specific flags. Always follow up with `analyze` for full safety score before trading.
-
-💡 **UPDATED USAGE**: When used in automated pipelines (e.g. crypto-scanner → onchain-analyzer safety → trade-executor), the `safety` command is now the *only* pre-trade contract check. Full `analyze` is reserved for manual due diligence. This reduces RPC load and speeds up scanning by 70%. The 45-point contract score is sufficient for automated buy/sell triggers — only flag for review if `MINT_AUTHORITY_ACTIVE` or `FREEZE_AUTHORITY_ACTIVE` are present. Always pair `safety` with `liquidity` check before approval — a token can be contract-safe but still a rug if liquidity is < $10K. **NEW RULE**: Safety score from `safety` is 0-45 (contract only). For trade approval, combine with liquidity check: if safety == 45 AND liquidity > $10K, proceed. If safety < 45, BLOCK. Risk-manager now enforces this logic. Do not use safety score alone to approve trades — always verify liquidity. **NEW RULE**: Safety score from `safety` is 0-45 (contract only). For trade approval, combine with liquidity check: if safety == 45 AND liquidity > $10K, proceed. If safety < 45, BLOCK. Risk-manager now enforces this logic. Do not use safety score alone to approve trades — always verify liquidity. ✅ **NEW LEARNING**: During this session, we confirmed that high-momentum tokens like UNCEROID (safety=45, liquidity=$251K, volume=$14.7M) with trending boosts (>500) and clean contracts are not typical rugpulls — they are high-conviction momentum plays. In such cases, **hold beyond take-profit** if momentum persists. Do not auto-sell on +100% if token is trending and liquidity is strong. Update trade-executor check-exits logic to flag but not auto-sell on take-profit for tokens with: safety == 45 AND liquidity > $200K AND 24h volume > $10M. This prevents premature exits on parabolic runs. This is now a permanent rule in the workflow. ✅ **NEW LEARNING**: During this session, we confirmed that high-momentum tokens like UNCEROID (safety=45, liquidity=$251K, volume=$14.7M) with trending boosts (>500) and clean contracts are not typical rugpulls — they are high-conviction momentum plays. In such cases, **hold beyond take-profit** if momentum persists. Do not auto-sell on +100% if token is trending and liquidity is strong. Update trade-executor check-exits logic to flag but not auto-sell on take-profit for tokens with: safety == 45 AND liquidity > $200K AND 24h volume > $10M. This prevents premature exits on parabolic runs. This is now a permanent rule in the workflow.
-### `safety` — Quick Safety Check Only
+Returns: SAFE / WARNING / DANGER with specific flags.
  
-Fast check — contract authorities only (mint/freeze). Returns **contract safety score (0-45)**, NOT the full 100-point score. Use for quick bulk screening, but NEVER for trade approval decisions.
+### `holders` — Top Holder Analysis
  
 ```bash
-python3 analyzer.py safety <address>
+python3 analyzer.py holders <address> --top 10
 ```
  
-Returns: SAFE / WARNING / DANGER with specific flags. Always follow up with `analyze` for full safety score before trading.
-
-💡 **UPDATED USAGE**: When used in automated pipelines (e.g. crypto-scanner → onchain-analyzer safety → trade-executor), the `safety` command is now the *only* pre-trade contract check. Full `analyze` is reserved for manual due diligence. This reduces RPC load and speeds up scanning by 70%. The 45-point contract score is sufficient for automated buy/sell triggers — only flag for review if `MINT_AUTHORITY_ACTIVE` or `FREEZE_AUTHORITY_ACTIVE` are present. Always pair `safety` with `liquidity` check before approval — a token can be contract-safe but still a rug if liquidity is < $10K. **NEW RULE**: Safety score from `safety` is 0-45 (contract only). For trade approval, combine with liquidity check: if safety == 45 AND liquidity > $10K, proceed. If safety < 45, BLOCK. Risk-manager now enforces this logic. Do not use safety score alone to approve trades — always verify liquidity. **NEW RULE**: Safety score from `safety` is 0-45 (contract only). For trade approval, combine with liquidity check: if safety == 45 AND liquidity > $10K, proceed. If safety < 45, BLOCK. Risk-manager now enforces this logic. Do not use safety score alone to approve trades — always verify liquidity. ✅ **NEW LEARNING**: During this session, we confirmed that high-momentum tokens like UNCEROID (safety=45, liquidity=$251K, volume=$14.7M) with trending boosts (>500) and clean contracts are not typical rugpulls — they are high-conviction momentum plays. In such cases, **hold beyond take-profit** if momentum persists. Do not auto-sell on +100% if token is trending and liquidity is strong. Update trade-executor check-exits logic to flag but not auto-sell on take-profit for tokens with: safety == 45 AND liquidity > $200K AND 24h volume > $10M. This prevents premature exits on parabolic runs. This is now a permanent rule in the workflow. ✅ **NEW LEARNING**: During this session, we confirmed that high-momentum tokens like UNCEROID (safety=45, liquidity=$251K, volume=$14.7M) with trending boosts (>500) and clean contracts are not typical rugpulls — they are high-conviction momentum plays. In such cases, **hold beyond take-profit** if momentum persists. Do not auto-sell on +100% if token is trending and liquidity is strong. Update trade-executor check-exits logic to flag but not auto-sell on take-profit for tokens with: safety == 45 AND liquidity > $200K AND 24h volume > $10M. This prevents premature exits on parabolic runs. This is now a permanent rule in the workflow.onviction momentum plays. In such cases, **hold beyond take-profit** if momentum persists. Do not auto-sell on +100% if token is trending and liquidity is strong. Update trade-executor check-exits logic to flag but not auto-sell on take-profit for tokens with: safety == 45 AND liquidity > $200K AND 24h volume > $10M. This prevents premature exits on parabolic runs. This is now a permanent rule in the workflow.
+Shows top holders, concentration %, and flags whale wallets.
+ 
+### `liquidity` — Liquidity Depth Check
+ 
+```bash
+python3 analyzer.py liquidity <address>
+```
+ 
+Shows liquidity pools, USD value, and basic lock status.
+ 
 ---
  
 ## Safety Score Breakdown
-
+ 
 | Check | Weight | SAFE | WARNING | DANGER |
 |-------|--------|------|---------|--------|
 | Mint authority | 25 | Revoked/None | Active but known | Active unknown |
@@ -100,10 +104,8 @@ Returns: SAFE / WARNING / DANGER with specific flags. Always follow up with `ana
 | Liquidity USD | 15 | >$50k | $10k-$50k | <$10k |
 | Pair age | 10 | >24h | 1-24h | <1h |
 | Socials/website | 10 | Has both | Has one | None |
-
+ 
 Score 70+ = Consider buying | 40-69 = Caution | <40 = Avoid
-
-⚠️ **ADDITIONAL**: If `CANNOT_READ_HOLDERS` flag appears, the token may have >10K holders or use a proxy. Safety score still valid if mint/freeze revoked and liquidity >$10k. This is common on successful memecoins — do not reject tokens for this flag alone.
  
 ---
  

@@ -98,6 +98,7 @@ source ~/.bashrc
 # Utwórz venv z Python 3.11
 cd ~/projects/hermes-agent-niggvis-crypto
 uv venv venv --python 3.11
+source .venv/bin/activate
 export VIRTUAL_ENV="$(pwd)/venv"
  
 # Zainstaluj wszystkie zależności
@@ -194,7 +195,7 @@ chmod 600 ~/.hermes/secrets/trading-wallet.json
 cp custom-files/trading-config.yaml ~/.hermes/memories/trading-config.yaml
  
 # 4. Zainstaluj solders (do podpisywania transakcji)
-pip install solders
+uv pip install solders
  
 # 5. Wpłać SOL na adres walleta
 python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet

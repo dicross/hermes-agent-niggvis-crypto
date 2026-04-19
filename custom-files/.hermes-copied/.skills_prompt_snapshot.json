@@ -70,8 +70,8 @@
       10344
     ],
     "crypto-scanner/SKILL.md": [
-      1776549851856320767,
-      6735
+      1776609542207830789,
+      4199
     ],
     "crypto/live-token-verification-pipeline/SKILL.md": [
       1776528846874883011,
@@ -242,8 +242,8 @@
       1264
     ],
     "onchain-analyzer/SKILL.md": [
-      1776555088013647944,
-      12049
+      1776609542220239156,
+      3620
     ],
     "productivity/google-workspace/SKILL.md": [
       1776509913786120219,
@@ -294,8 +294,8 @@
       103549
     ],
     "risk-manager/SKILL.md": [
-      1776549866031562063,
-      7601
+      1776609542228511401,
+      3639
     ],
     "smart-home/openhue/SKILL.md": [
       1776509913833773131,
@@ -334,12 +334,12 @@
       6557
     ],
     "trade-executor/SKILL.md": [
-      1776536928673732720,
-      4421
+      1776609542240919769,
+      2502
     ],
     "trade-journal/SKILL.md": [
-      1776562517256034783,
-      3912
+      1776609542249192014,
+      3150
     ],
     "apple/DESCRIPTION.md": [
       1776509913660489814,
@@ -1555,7 +1555,7 @@
       "skill_name": "trade-executor",
       "category": "trade-executor",
       "frontmatter_name": "trade-executor",
-      "description": "Execute crypto trades on Solana — paper mode (simulation)...",
+      "description": "Execute crypto trades on Solana via Jupiter API — paper m...",
       "platforms": [],
       "conditions": {
         "fallback_for_toolsets": [],
