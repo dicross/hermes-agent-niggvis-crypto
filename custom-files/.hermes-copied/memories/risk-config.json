@@ -1,0 +1,13 @@
+{
+  "mode": "paper",
+  "max_trade_sol": 0.1,
+  "max_positions": 5,
+  "daily_loss_limit_pct": -20,
+  "min_safety_score": 60,
+  "stop_loss_pct": -30,
+  "take_profit_min_pct": 100,
+  "total_budget_sol": 1.0,
+  "kill_switch": false,
+  "kill_reason": null,
+  "kill_time": null
+}

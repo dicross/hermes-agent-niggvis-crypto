@@ -1,0 +1,29 @@
+{
+  "updated_at": "2026-04-19T10:53:20.491988",
+  "platforms": {
+    "telegram": [
+      {
+        "id": "5465931080",
+        "name": "watermelon kisser",
+        "type": "dm",
+        "thread_id": null
+      }
+    ],
+    "discord": [],
+    "whatsapp": [],
+    "slack": [],
+    "signal": [],
+    "mattermost": [],
+    "matrix": [],
+    "homeassistant": [],
+    "email": [],
+    "sms": [],
+    "dingtalk": [],
+    "feishu": [],
+    "wecom": [],
+    "wecom_callback": [],
+    "weixin": [],
+    "bluebubbles": [],
+    "qqbot": []
+  }
+}
