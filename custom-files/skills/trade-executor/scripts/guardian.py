@@ -127,8 +127,8 @@ def _render_tui():
     term_width = shutil.get_terminal_size((80, 24)).columns
     separator = "─" * min(term_width, 72)
 
-    # Move cursor to top-left and clear screen
-    sys.stdout.write("\033[2J\033[H")
+    # Clear screen — use os.system('clear') as fallback for WSL
+    os.system('clear')
 
     # Header
     now = _local_now().strftime("%H:%M:%S %Z")
@@ -139,11 +139,10 @@ def _render_tui():
     history_to_show = list(_run_history)[-_history_size:]
     if history_to_show:
         for i, run_lines in enumerate(history_to_show):
-            # Dim older runs
             for line in run_lines:
-                sys.stdout.write(f"\033[2m{line}\033[0m\n")
+                print(f"  {line}")
             if i < len(history_to_show) - 1:
-                print(f"\033[2m{separator}\033[0m")
+                print(f"  {separator}")
         print(separator)
 
     # Current run (bright)
