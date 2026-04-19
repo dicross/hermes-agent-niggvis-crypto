@@ -36,9 +36,10 @@ JOBS = [
             "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10. "
             "For promising tokens with liquidity > $10k, go straight to executor.py buy "
             "(it runs full analyze + risk check internally). Do NOT run analyzer.py safety manually. "
-            "Position size is auto-calculated from config. Be concise. "
-            "If you execute a buy, report: token name, safety score, amount, tx link. "
-            "If nothing worth buying, reply with one short line: 'No candidates this cycle.'"
+            "Position size is auto-calculated from config. "
+            "RESPONSE RULES: "
+            "- If you executed a BUY: report token name, safety score, amount, price, tx link. "
+            "- If NO buy was made (no candidates, all blocked, insufficient balance): respond [SILENT]"
         ),
     },
     {
@@ -49,16 +50,17 @@ JOBS = [
         "prompt": (
             "Check all open positions for exit signals. Use trade-executor check-exits. "
             "If any stop-loss or trailing stop is triggered, execute the sell immediately. "
-            "Also run trade-executor portfolio. "
-            "If you execute a sell, report: token, P&L%, reason, tx link. "
-            "Keep response short — 2-3 lines max if no exits triggered."
+            "RESPONSE RULES: "
+            "- If you executed a SELL (SL/TP/trailing triggered): report token, entry/exit price, P&L%, reason, tx link. "
+            "- If a position moved more than 50% since last check (up or down): report the alert. "
+            "- If NO sells and no big moves: respond [SILENT]"
         ),
     },
     {
         "name": "trend-analysis",
         "schedule": "every 240m",
         "skills": ["crypto-scanner", "trade-journal"],
-        "deliver": "telegram",
+        "deliver": "local",
         "prompt": (
             "Run a market trend analysis. Use crypto-scanner metas to check trending categories. "
             "Then crypto-scanner trending --limit 20 for top movers. Identify which categories "
