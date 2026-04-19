@@ -219,6 +219,18 @@ curl "https://api.dexscreener.com/metas/trending/v1"
 
 ### Custom Skills — Quick Reference
 
+Instalacja custom skills:
+
+```bash
+cd ~/projects/hermes-agent-niggvis-crypto
+bash custom-files/install-skills.sh           # Menu — domyślnie opcja 2 (skills only)
+bash custom-files/install-skills.sh --skills  # Skrypty + config (bez SOUL/MEMORY)
+bash custom-files/install-skills.sh --full    # Wszystko (reset agenta)
+bash custom-files/install-skills.sh --config  # Tylko trading-config.yaml
+```
+
+Używanie custom skills:
+
 ```bash
 # Scanner: trending, scan, search, metas
 python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py trending --limit 5
