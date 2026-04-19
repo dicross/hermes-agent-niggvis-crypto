@@ -32,12 +32,17 @@ No external packages required — uses only Python standard library.
 
 ## Quick Reference
 
-```
-python3 journal.py add --token NAME --address ADDR --amount SOL --price PRICE --reason "why"
-python3 journal.py close --id N --exit-price PRICE --reason "why sold"
-python3 journal.py show [--limit N] [--open-only]
-python3 journal.py stats [--days N]
-python3 journal.py export [--format csv]
+IMPORTANT: Always use FULL paths.
+Script dir: `~/.hermes/skills/trade-journal/scripts/`
+Journal data: `~/.hermes/memories/trade-journal.json` (JSON, NOT .md!)
+
+```bash
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py add --token NAME --address ADDR --amount SOL --price PRICE --reason "why"
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py close --id N --exit-price PRICE --reason "why sold"
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py show [--limit N] [--open-only]
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py show --status open
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py stats [--days N]
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py export [--format csv]
 ```
 
 ---
@@ -57,7 +62,7 @@ python3 ~/.hermes/skills/trade-journal/scripts/journal.py add \
 
 For paper trades, add `--paper`:
 ```bash
-python3 journal.py add --token "PEPE2" --address "..." --amount 0.05 --price 0.001 \
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py add --token "PEPE2" --address "..." --amount 0.05 --price 0.001 \
   --reason "Testing scanner signal" --paper
 ```
 

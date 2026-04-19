@@ -38,11 +38,14 @@ Default: `https://api.mainnet-beta.solana.com` (public, rate-limited).
  
 ## Quick Reference
  
-```
-python3 analyzer.py analyze <token_address> [--full]
-python3 analyzer.py safety <token_address>
-python3 analyzer.py holders <token_address> [--top N]
-python3 analyzer.py liquidity <token_address>
+IMPORTANT: Always use FULL paths.
+Script dir: `~/.hermes/skills/onchain-analyzer/scripts/`
+ 
+```bash
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py analyze <token_address> [--full]
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py safety <token_address>
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py holders <token_address> [--top N]
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py liquidity <token_address>
 ```
  
 ---
@@ -54,8 +57,8 @@ python3 analyzer.py liquidity <token_address>
 Runs all checks and outputs a combined report with a safety score (0-100).
  
 ```bash
-python3 analyzer.py analyze So11111111111111111111111111111111111111112
-python3 analyzer.py analyze <address> --full   # Include holder list
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py analyze So11111111111111111111111111111111111111112
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py analyze <address> --full   # Include holder list
 ```
  
 Output includes:
@@ -71,7 +74,7 @@ Output includes:
 Fast check — contract authorities only. Use for bulk screening.
  
 ```bash
-python3 analyzer.py safety <address>
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py safety <address>
 ```
  
 Returns: SAFE / WARNING / DANGER with specific flags.
@@ -79,7 +82,7 @@ Returns: SAFE / WARNING / DANGER with specific flags.
 ### `holders` — Top Holder Analysis
  
 ```bash
-python3 analyzer.py holders <address> --top 10
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py holders <address> --top 10
 ```
  
 Shows top holders, concentration %, and flags whale wallets.
@@ -87,7 +90,7 @@ Shows top holders, concentration %, and flags whale wallets.
 ### `liquidity` — Liquidity Depth Check
  
 ```bash
-python3 analyzer.py liquidity <address>
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py liquidity <address>
 ```
  
 Shows liquidity pools, USD value, and basic lock status.

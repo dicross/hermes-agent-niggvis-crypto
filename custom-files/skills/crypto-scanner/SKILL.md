@@ -42,11 +42,16 @@ Set `SOLANA_RPC_URL` env variable for private RPC (faster, no rate limits).
 
 ## Quick Reference
 
-```
-python3 scanner.py scan [--min-liq N] [--min-vol N] [--max-age N] [--limit N] [--check-contract]
-python3 scanner.py trending [--limit N]
-python3 scanner.py search <query> [--min-liq N] [--min-vol N]
-python3 scanner.py metas
+IMPORTANT: Always use FULL paths.
+Script dir: `~/.hermes/skills/crypto-scanner/scripts/`
+
+```bash
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py scan [--min-liq N] [--min-vol N] [--max-age N] [--limit N] [--check-contract]
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py trending [--limit N]
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py search <query> [--min-liq N] [--min-vol N]
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py metas
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py token <address>
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py new-pairs [--limit N]
 ```
 
 ---

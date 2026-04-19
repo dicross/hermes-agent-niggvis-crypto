@@ -71,8 +71,31 @@ WAŻNE ZASADY BEZPIECZEŃSTWA:
 
 ## Config changes — wymagają potwierdzenia
 
-Jeśli chcesz zmienić parametry tradingowe (SL, TP, position size, slippage):
-1. Użyj `executor.py config-propose --key <key> --value <val> --reason "dlaczego"`
+Jeśli chcesz zmienić parametry tradingowe (SL, TP, trailing, position size, slippage):
+
+```bash
+# Zmiana stop-loss
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose \
+  --key stop_loss_pct --value "-20" --reason "tighter SL"
+
+# Zmiana take-profit
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose \
+  --key take_profit_pct --value "50" --reason "szybszy exit"
+
+# Zmiana trailing stop (0 = wyłącz trailing, sell od razu na TP)
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose \
+  --key trailing_stop_pct --value "10" --reason "tighter trailing"
+
+# Zmiana position size
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose \
+  --key position_pct --value "3.0" --reason "mniejsze pozycje"
+
+# Zastosowanie po akceptacji Damiana
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-apply --index <N>
+```
+
+Zasady config changes:
+1. ZAWSZE użyj `config-propose` (nigdy nie edytuj pliku ręcznie)
 2. Wyślij propozycję do Damiana na Telegram z uzasadnieniem
 3. Czekaj na potwierdzenie zanim zastosujesz zmianę
 4. NIGDY nie zmieniaj configu samodzielnie bez zgody

@@ -37,13 +37,16 @@ Reads trade data from `~/.hermes/memories/trade-journal.json`.
  
 ## Quick Reference
  
-```
-python3 risk_manager.py check --amount <SOL> --token <address> [--safety-score N]
-python3 risk_manager.py status
-python3 risk_manager.py kill [--reason "why"]
-python3 risk_manager.py resume
-python3 risk_manager.py config [--set key=value]
-python3 risk_manager.py limits
+IMPORTANT: Always use FULL paths.
+Script dir: `~/.hermes/skills/risk-manager/scripts/`
+ 
+```bash
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py check --amount <SOL> --token <address> [--safety-score N]
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py status
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py kill [--reason "why"]
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py resume
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py config [--set key=value]
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py limits
 ```
  
 ---
@@ -55,7 +58,7 @@ python3 risk_manager.py limits
 Must be called before EVERY buy. Returns APPROVED or BLOCKED with reason.
  
 ```bash
-python3 risk_manager.py check --amount 0.05 --token <address> --safety-score 75
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py check --amount 0.05 --token <address> --safety-score 75
 ```
  
 Checks:
@@ -69,7 +72,7 @@ Checks:
 ### `status` — Current Risk Dashboard
  
 ```bash
-python3 risk_manager.py status
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py status
 ```
  
 Shows:
@@ -83,7 +86,7 @@ Shows:
 ### `kill` — Emergency Stop
  
 ```bash
-python3 risk_manager.py kill --reason "suspicious activity"
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py kill --reason "suspicious activity"
 ```
  
 Halts ALL trading. Agent cannot buy until `resume` is called.
@@ -92,7 +95,7 @@ Also triggered by Telegram `/stop` command.
 ### `resume` — Resume Trading
  
 ```bash
-python3 risk_manager.py resume
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py resume
 ```
  
 Clears kill switch. Requires explicit action.
@@ -100,15 +103,15 @@ Clears kill switch. Requires explicit action.
 ### `config` — View/Set Limits
  
 ```bash
-python3 risk_manager.py config                          # show all
-python3 risk_manager.py config --set max_trade_sol=0.05 # change limit
-python3 risk_manager.py config --set mode=paper         # paper/real
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py config                          # show all
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py config --set max_trade_sol=0.05 # change limit
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py config --set mode=paper         # paper/real
 ```
  
 ### `limits` — Show All Hard Limits
  
 ```bash
-python3 risk_manager.py limits
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py limits
 ```
  
 ---
