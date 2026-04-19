@@ -135,20 +135,22 @@ def _render_tui():
     print(f"🛡️  GUARDIAN  │  {now}  │  interval: {_watch_interval}s  │  history: {_history_size}")
     print(separator)
 
-    # Previous runs (dimmed)
+    # Previous runs (gray = dimmed)
+    GRAY = "\033[90m"
+    RESET = "\033[0m"
     history_to_show = list(_run_history)[-_history_size:]
     if history_to_show:
         for i, run_lines in enumerate(history_to_show):
             for line in run_lines:
-                print(f"  {line}")
+                print(f"{GRAY}  {line}{RESET}")
             if i < len(history_to_show) - 1:
-                print(f"  {separator}")
+                print(f"{GRAY}  {separator}{RESET}")
         print(separator)
 
-    # Current run (bright)
+    # Current run (normal color = bright)
     if _current_run_lines:
         for line in _current_run_lines:
-            print(line)
+            print(f"  {line}")
     else:
         print("  Waiting for next check...")
 
