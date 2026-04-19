@@ -1,12 +1,79 @@
 # Niggvis — Crypto Trading Knowledge Base
 
+## CRITICAL — File Locations & Tool Commands
+
+### Where everything lives
+- Config: `~/.hermes/memories/trading-config.yaml`
+- Trade journal: `~/.hermes/memories/trade-journal.json`
+- Trade learnings: `~/.hermes/memories/trade-learnings.json`
+- Wallet keypair: `~/.hermes/secrets/trading-wallet.json`
+- Guardian log: `~/.hermes/cron/guardian.log`
+- Skills directory: `~/.hermes/skills/`
+
+### How to run tools (ALWAYS use full paths)
+```bash
+# Trade Executor — buy, sell, check exits, portfolio
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py buy --token <address> --reason "why"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py sell --id <N> --reason "why"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py sell --id <N> --pct 50 --reason "partial TP"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py check-exits
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py portfolio
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py mode
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose --key <key> --value <val> --reason "why"
+
+# Jupiter Swap — direct on-chain (low-level)
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py balance --token <address>
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py buy --token <address>
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py buy --token <address> --amount-sol 0.05
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py sell --token <address>
+
+# Crypto Scanner — trending, new pairs
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py trending --limit 10
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py new-pairs --limit 10
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py token <address>
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py metas
+
+# On-chain Analyzer — safety score
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py safety <address>
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py holders <address>
+
+# Trade Journal — show, stats, export
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py show
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py show --status open
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py stats --days 7
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py close --id <N> --reason "why"
+
+# Risk Manager — check, status, kill switch
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py check --token <address> --amount 0.05
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py status
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py kill --reason "why"
+
+# Learning — self-improvement
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py update
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns
+
+# Guardian — price monitor (usually runs separately, but can check)
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --dry-run
+```
+
+### Trading pipeline (follow this order)
+1. `scanner.py trending` → find candidates
+2. `analyzer.py safety <addr>` → check safety score (min 60)
+3. `risk_manager.py check --token <addr> --amount <sol>` → pre-trade approval
+4. `executor.py buy --token <addr> --reason "..."` → execute (auto-sizes from config)
+5. `guardian.py` monitors prices every 2 min → auto SL/TP
+6. `executor.py sell --id <N> --reason "..."` → manual sell when needed
+
+---
+
 ## Environment
 
 - Agent: Niggvis (Hermes Agent instance)
 - Owner: Damian
 - Blockchain: Solana
 - Execution: Jupiter V2 Meta-Aggregator (on-chain swaps)
-- Models: Mistral Large (primary), NVIDIA NIM Llama 3.3 70B (backup)
+- Models: NVIDIA NIM (primary), Mistral Large (fallback)
 - Platform: WSL → VPS (Contabo) docelowo
 - Language: polski (crypto terms po angielsku)
 - Config: ~/.hermes/memories/trading-config.yaml
