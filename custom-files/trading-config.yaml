@@ -122,7 +122,7 @@ notifications:
   # Require confirmation before config changes by agent
   require_config_approval: true
   # Alert threshold: notify if position moves more than X%
-  price_move_alert_pct: 20
+  price_move_alert_pct: 100
 
 # =============================================================================
 # Config Change History (auto-updated by agent)
