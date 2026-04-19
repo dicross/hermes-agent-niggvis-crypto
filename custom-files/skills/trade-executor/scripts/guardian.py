@@ -88,6 +88,7 @@ _run_history: deque = deque(maxlen=10)
 _current_run_lines: list = []
 _tui_enabled: bool = True
 _history_size: int = 3
+_check_counter: int = 0
 
 
 def _local_now() -> datetime:
@@ -427,12 +428,14 @@ def main():
 
         log(f"Guardian started (interval: {args.interval}s, dry-run: {args.dry_run})")
         _render_tui()
+        global _check_counter
         try:
             while True:
                 _flush_run()
                 try:
+                    _check_counter += 1
                     ts = _local_now().strftime("%H:%M:%S")
-                    log(f"🔍 Check #{len(_run_history) + 1} at {ts}")
+                    log(f"🔍 Check #{_check_counter} at {ts}")
                     actions = check_positions(dry_run=args.dry_run)
                     if actions:
                         log(f"  → {len(actions)} action(s) taken")

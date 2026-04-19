@@ -178,9 +178,15 @@ def _get_today_closed(journal: dict) -> list:
     return closed
 
 
-def _get_daily_pnl(journal: dict) -> float:
-    """Calculate today's total P&L in %."""
+def _get_daily_pnl(journal: dict, mode: str = None) -> float:
+    """Calculate today's total P&L in %. If mode given, only count same-mode trades."""
     closed_today = _get_today_closed(journal)
+    if not closed_today:
+        return 0.0
+    if mode == "real":
+        closed_today = [t for t in closed_today if not t.get("paper")]
+    elif mode == "paper":
+        closed_today = [t for t in closed_today if t.get("paper")]
     if not closed_today:
         return 0.0
     return sum(t.get("pnl_pct", 0) for t in closed_today)
@@ -221,7 +227,7 @@ def cmd_check(args):
         approved = False
 
     # 4. Daily loss limit
-    daily_pnl = _get_daily_pnl(journal)
+    daily_pnl = _get_daily_pnl(journal, mode=cfg["mode"])
     if daily_pnl <= cfg["daily_loss_limit_pct"]:
         reasons.append(f"Daily P&L {daily_pnl:.1f}% <= limit {cfg['daily_loss_limit_pct']}%")
         approved = False
@@ -244,12 +250,13 @@ def cmd_check(args):
     # We check max_positions and max_trade_sol instead
 
     # Output
+    invested = _get_total_invested(journal)
     if approved:
         print(f"✅ APPROVED — {cfg['mode'].upper()} mode")
         print(f"  Amount: {args.amount} SOL")
         print(f"  Open positions: {len(open_trades)}/{cfg['max_positions']}")
         print(f"  Daily P&L: {daily_pnl:+.1f}%")
-        print(f"  Budget: {invested:.4f}/{cfg['total_budget_sol']} SOL")
+        print(f"  Invested: {invested:.4f} SOL")
         if args.safety_score is not None:
             print(f"  Safety score: {args.safety_score}")
     else:
@@ -276,7 +283,7 @@ def cmd_status(args):
     cfg = _load_config()
     journal = _load_journal()
     open_trades = _get_open_trades(journal)
-    daily_pnl = _get_daily_pnl(journal)
+    daily_pnl = _get_daily_pnl(journal, mode=cfg["mode"])
     invested = _get_total_invested(journal)
     closed_today = _get_today_closed(journal)
 
