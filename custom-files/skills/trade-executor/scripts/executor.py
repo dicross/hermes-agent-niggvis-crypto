@@ -146,6 +146,26 @@ def _get_price(address: str) -> float | None:
     return float(price) if price else None
 
 
+def _get_token_info(address: str) -> dict | None:
+    """Fetch price + name/symbol from DEXScreener. Returns dict or None."""
+    url = f"{DEXSCREENER_BASE}/tokens/v1/solana/{address}"
+    data = _http_get(url)
+    if not data or not isinstance(data, list) or len(data) == 0:
+        return None
+    pairs = sorted(data, key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+    best = pairs[0]
+    price = best.get("priceUsd")
+    if not price:
+        return None
+    # baseToken is the token we're looking at
+    base = best.get("baseToken", {})
+    return {
+        "price": float(price),
+        "name": base.get("name", ""),
+        "symbol": base.get("symbol", ""),
+    }
+
+
 def _run_skill(script: str, args: list) -> tuple[int, str]:
     tcfg = load_trading_config()
     python_bin = _cfg(tcfg, "python_bin", default=sys.executable)
@@ -217,11 +237,14 @@ def cmd_buy(args):
         pct = _cfg(tcfg, "position_sizing", "position_pct", default=5.0)
         print(f"  Auto-sized: {amount:.4f} SOL ({pct}% of {balance:.4f} wallet)")
 
-    # 2. Get current price
-    price = _get_price(args.token)
-    if price is None:
+    # 2. Get current price + token name
+    token_info = _get_token_info(args.token)
+    if token_info is None:
         print("❌ Cannot fetch price from DEXScreener. Aborting.")
         sys.exit(1)
+    price = token_info["price"]
+    token_name = args.token_name or token_info.get("symbol") or token_info.get("name") or args.token[:12]
+    print(f"  Token: {token_name}")
     print(f"  Price: ${price}")
 
     # 3. Safety check via onchain-analyzer (full analysis, not just contract)
@@ -304,7 +327,7 @@ def cmd_buy(args):
     if os.path.exists(journal_script):
         journal_args = [
             "add",
-            "--token", args.token_name or args.token[:12],
+            "--token", token_name,
             "--address", args.token,
             "--amount", str(amount),
             "--price", str(price),
