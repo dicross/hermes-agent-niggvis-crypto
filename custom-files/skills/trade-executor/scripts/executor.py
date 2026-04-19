@@ -224,14 +224,23 @@ def cmd_buy(args):
         sys.exit(1)
     print(f"  Price: ${price}")
 
-    # 3. Safety check via onchain-analyzer
+    # 3. Safety check via onchain-analyzer (full analysis, not just contract)
     analyzer_script = os.path.join(SKILLS_DIR, "onchain-analyzer", "scripts", "analyzer.py")
     safety_score = None
     if os.path.exists(analyzer_script):
-        print("  Running safety check...")
-        rc, output = _run_skill(analyzer_script, ["safety", args.token])
+        print("  Running safety analysis...")
+        rc, output = _run_skill(analyzer_script, ["analyze", args.token])
         for line in output.split("\n"):
-            if "Score" in line and "/" in line:
+            if "Safety Score" in line and "/" in line:
+                try:
+                    # Parse "Safety Score: ✅ 80/100 — CONSIDER"
+                    score_part = line.split("/")[0]  # "...80"
+                    digits = "".join(c for c in score_part.split()[-1] if c.isdigit())
+                    safety_score = int(digits)
+                except (ValueError, IndexError):
+                    pass
+            elif "Score (contract only)" in line and "/" in line and safety_score is None:
+                # Fallback: if full analyze fails, use contract-only score
                 try:
                     parts = line.split(":")[-1].strip().split("/")
                     safety_score = int(parts[0])
