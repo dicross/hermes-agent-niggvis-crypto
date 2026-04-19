@@ -18,6 +18,11 @@ Restart gateway przez sudo:
 sudo systemctl restart hermes-gateway
 ```
 
+Uruchomienie guardiana:
+```bash
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5 --interval 60
+```
+
 ---
 
 ## Kluczowe komendy CLI
@@ -175,10 +180,6 @@ python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py quote --input-mi
 | CoinGecko | `api.coingecko.com/api/v3` | Ceny, trending, market cap |
 | pump.fun | `frontend-api.pump.fun` | Nowe memecoiny na Solanie |
 | Solana RPC | `api.mainnet-beta.solana.com` | On-chain data
-
-> Agent zarządza keypairem w ~/.hermes/secrets/trading-wallet.json
-> Jupiter API routuje przez Metis, JupiterZ, Dflow, OKX — best price.
-> Config: trading-config.yaml (slippage, priority fee)
 
 ### Darmowe API do skanowania
 
