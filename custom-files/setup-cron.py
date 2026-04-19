@@ -35,7 +35,8 @@ JOBS = [
             "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10, "
             "then for the top 3 run onchain-analyzer safety. Report any token with safety "
             "score >= 60 and liquidity > $10k. If you find a good candidate, run the full "
-            "pipeline: analyze -> risk check -> paper buy if approved. Be concise."
+            "pipeline: analyze -> risk check -> buy if approved. Position size is auto-calculated "
+            "from trading-config.yaml. Mode (paper/real) is read from config. Be concise."
         ),
     },
     {
@@ -44,8 +45,9 @@ JOBS = [
         "skills": ["trade-executor", "trade-journal", "crypto-scanner"],
         "prompt": (
             "Check all open positions for exit signals. Use trade-executor check-exits. "
-            "If any stop-loss is triggered, execute the sell immediately. For take-profit "
-            "signals, evaluate if we should hold or sell based on current momentum. Report results."
+            "If any stop-loss is triggered, execute the sell immediately (Jupiter sell in real mode). "
+            "For take-profit signals, evaluate if we should hold or sell based on current momentum. "
+            "Also run trade-executor portfolio to show wallet balance and position summary. Report results."
         ),
     },
     {
@@ -97,7 +99,7 @@ JOBS = [
             "Step 2: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns` to see all discovered patterns. "
             "Step 3: Run trade-journal stats --days 7. Export trades: trade-journal export. "
             "Step 4: Analyze: total P&L, win rate, best/worst trades, avg hold time, which signals worked. "
-            "Step 5: Compare paper vs real results. "
+            "Step 5: Review trade execution quality (slippage, timing). "
             "Step 6: Based on patterns, suggest specific changes to risk-manager config "
             "(min_safety_score, stop_loss_pct, take_profit_min_pct). "
             "Step 7: Update MEMORY.md 'Known Patterns' section with new bullish/bearish signals. "
