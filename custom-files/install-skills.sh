@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install custom skills to ~/.hermes/skills/
+# Install custom skills, configs, and core files to ~/.hermes/
 # Run from repo root: bash custom-files/install-skills.sh
 
 set -euo pipefail
@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SKILLS_SRC="$SCRIPT_DIR/skills"
 SKILLS_DST="$HOME/.hermes/skills"
+HERMES_DIR="$HOME/.hermes"
 
 if [[ ! -d "$SKILLS_SRC" ]]; then
     echo "❌ No skills directory found at $SKILLS_SRC"
@@ -14,9 +15,53 @@ if [[ ! -d "$SKILLS_SRC" ]]; then
 fi
 
 mkdir -p "$SKILLS_DST"
+mkdir -p "$HERMES_DIR/memories"
+mkdir -p "$HERMES_DIR/secrets"
 
-echo "📦 Installing custom skills to $SKILLS_DST"
+echo "📦 Installing Niggvis Crypto Trading Agent"
+echo "   Target: $HERMES_DIR"
 echo ""
+
+# --- Core files (ALWAYS overwrite — these define the agent) ---
+echo "🧠 Core files:"
+
+# SOUL.md — agent personality
+if [[ -f "$SCRIPT_DIR/SOUL.md" ]]; then
+    cp "$SCRIPT_DIR/SOUL.md" "$HERMES_DIR/SOUL.md"
+    echo "  → SOUL.md (updated)"
+fi
+
+# MEMORY.md — knowledge base
+if [[ -f "$SCRIPT_DIR/MEMORY.md" ]]; then
+    cp "$SCRIPT_DIR/MEMORY.md" "$HERMES_DIR/memories/MEMORY.md"
+    echo "  → MEMORY.md (updated)"
+fi
+
+# trading-config.yaml — ALWAYS overwrite to get latest defaults
+if [[ -f "$SCRIPT_DIR/trading-config.yaml" ]]; then
+    cp "$SCRIPT_DIR/trading-config.yaml" "$HERMES_DIR/memories/trading-config.yaml"
+    echo "  → trading-config.yaml (updated)"
+fi
+
+# .env — only if not exists (contains secrets)
+if [[ -f "$SCRIPT_DIR/.env.example" && ! -f "$HERMES_DIR/.env" ]]; then
+    cp "$SCRIPT_DIR/.env.example" "$HERMES_DIR/.env"
+    echo "  → .env (created from template — EDIT WITH YOUR KEYS)"
+fi
+
+# config.yaml — only if not exists (user may have customized)
+if [[ -f "$SCRIPT_DIR/config.example.yaml" && ! -f "$HERMES_DIR/config.yaml" ]]; then
+    cp "$SCRIPT_DIR/config.example.yaml" "$HERMES_DIR/config.yaml"
+    echo "  → config.yaml (created from template)"
+fi
+
+echo ""
+
+# --- Skills ---
+echo "🔧 Skills:"
+
+# --- Skills ---
+echo "🔧 Skills:"
 
 for skill_dir in "$SKILLS_SRC"/*/; do
     skill_name="$(basename "$skill_dir")"
@@ -24,17 +69,6 @@ for skill_dir in "$SKILLS_SRC"/*/; do
     rm -rf "${SKILLS_DST:?}/$skill_name"
     cp -r "$skill_dir" "$SKILLS_DST/$skill_name"
 done
-
-# Also install trading-config.yaml if not already present
-TRADING_CFG_SRC="$SCRIPT_DIR/trading-config.yaml"
-TRADING_CFG_DST="$HOME/.hermes/memories/trading-config.yaml"
-if [[ -f "$TRADING_CFG_SRC" && ! -f "$TRADING_CFG_DST" ]]; then
-    mkdir -p "$(dirname "$TRADING_CFG_DST")"
-    cp "$TRADING_CFG_SRC" "$TRADING_CFG_DST"
-    echo "  → trading-config.yaml installed to $TRADING_CFG_DST"
-elif [[ -f "$TRADING_CFG_DST" ]]; then
-    echo "  → trading-config.yaml already exists (skipped)"
-fi
 
 # Also install Solana blockchain skill from optional-skills if available
 SOLANA_SRC="$SCRIPT_DIR/../optional-skills/blockchain/solana"
@@ -44,13 +78,17 @@ if [[ -d "$SOLANA_SRC" && ! -d "$SKILLS_DST/solana" ]]; then
 fi
 
 echo ""
-echo "✅ Skills installed:"
+echo "✅ Installation complete!"
+echo ""
+echo "Skills installed:"
 ls -1 "$SKILLS_DST"
 echo ""
-echo "Test scanner: python3 $SKILLS_DST/crypto-scanner/scripts/scanner.py trending --limit 3"
-echo "Test journal: python3 $SKILLS_DST/trade-journal/scripts/journal.py show"
+echo "Core files:"
+echo "  SOUL.md           → $HERMES_DIR/SOUL.md"
+echo "  MEMORY.md         → $HERMES_DIR/memories/MEMORY.md"
+echo "  trading-config    → $HERMES_DIR/memories/trading-config.yaml"
 echo ""
-echo "📋 New tools:"
-echo "  Guardian:  python3 $SKILLS_DST/trade-executor/scripts/guardian.py --watch"
-echo "  Learning:  python3 $SKILLS_DST/trade-journal/scripts/learning.py analyze"
-echo "  Cron view: python3 $SCRIPT_DIR/scripts/cron_viewer.py"
+echo "Quick test:"
+echo "  python3 $SKILLS_DST/crypto-scanner/scripts/scanner.py trending --limit 3"
+echo "  python3 $SKILLS_DST/trade-executor/scripts/jupiter_swap.py wallet"
+echo "  python3 $SKILLS_DST/trade-executor/scripts/guardian.py --watch"
