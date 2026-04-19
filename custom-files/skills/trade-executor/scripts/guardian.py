@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-Position Guardian — Fast price monitor (no LLM, runs every 2-3 min).
+Position Guardian — Adaptive price monitor (no LLM, lightweight).
 
-Checks current prices of open positions against stop-loss and take-profit
-thresholds. If triggered, executes the sell via trade-journal directly
-(no need to wait for the hourly cron).
+Checks current prices of open positions against stop-loss, take-profit,
+and trailing-stop thresholds. If triggered, executes sell via Jupiter.
+
+Adaptive interval (from trading-config.yaml → guardian section):
+  - idle (120s default): no open positions
+  - active (20s default): positions open, normal range
+  - hot (10s default): position near SL or TP (within hot_zone_pct)
 
 Usage:
     python3 guardian.py              # One-shot check
-    python3 guardian.py --watch      # Continuous loop (every 2 min)
-    python3 guardian.py --watch --interval 180   # Every 3 min
+    python3 guardian.py --watch      # Continuous loop (adaptive interval)
     python3 guardian.py --watch --history 5      # Show last 5 runs
     python3 guardian.py --dry-run    # Check but don't sell
     python3 guardian.py --no-tui     # Disable screen clearing (for logs)
@@ -133,7 +136,8 @@ def _render_tui():
 
     # Header
     now = _local_now().strftime("%H:%M:%S %Z")
-    print(f"🛡️  GUARDIAN  │  {now}  │  interval: {_watch_interval}s  │  history: {_history_size}")
+    mode_label = "hot" if _watch_interval <= 10 else ("active" if _watch_interval <= 30 else "idle")
+    print(f"🛡️  GUARDIAN  │  {now}  │  {_watch_interval}s ({mode_label})  │  history: {_history_size}")
     print(separator)
 
     # Previous runs (gray = dimmed)
@@ -305,6 +309,9 @@ def _execute_jupiter_sell(address: str) -> bool:
 
 def check_positions(dry_run: bool = False) -> list:
     """Check all open positions. Returns list of actions taken."""
+    global _last_pnl_cache
+    _last_pnl_cache = {}
+
     journal = load_json(JOURNAL_PATH)
     tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
 
@@ -338,6 +345,9 @@ def check_positions(dry_run: bool = False) -> list:
             continue
 
         pnl_pct = ((price - entry) / entry) * 100
+
+        # Cache for adaptive interval (no extra API calls)
+        _last_pnl_cache[t["id"]] = pnl_pct
 
         # Stop-loss check
         if pnl_pct <= sl_pct:
@@ -432,8 +442,47 @@ def check_positions(dry_run: bool = False) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Adaptive interval
 # ---------------------------------------------------------------------------
+
+# Cache of last P&L values per trade (set by check_positions)
+_last_pnl_cache: dict = {}  # trade_id -> pnl_pct
+
+
+def _compute_adaptive_interval(tcfg: dict) -> int:
+    """Compute check interval based on open positions and proximity to SL/TP.
+
+    Uses cached P&L from the last check_positions run (no extra API calls).
+
+    Reads from trading-config.yaml guardian section:
+      guardian:
+        interval_idle: 120      # No positions open
+        interval_active: 20     # Positions open, normal range
+        interval_hot: 10        # Position near SL or TP threshold
+        hot_zone_pct: 15        # "Near" = within this % of SL or TP
+
+    Returns interval in seconds.
+    """
+    idle = int(_cfg(tcfg, "guardian", "interval_idle", default=120))
+    active = int(_cfg(tcfg, "guardian", "interval_active", default=20))
+    hot = int(_cfg(tcfg, "guardian", "interval_hot", default=10))
+    hot_zone = float(_cfg(tcfg, "guardian", "hot_zone_pct", default=15))
+
+    if not _last_pnl_cache:
+        return idle
+
+    sl_pct = float(_cfg(tcfg, "risk", "stop_loss_pct", default=-30))
+    tp_pct = float(_cfg(tcfg, "risk", "take_profit_pct", default=100))
+
+    for pnl_pct in _last_pnl_cache.values():
+        # Near stop-loss: e.g. SL=-30, hot_zone=15 → hot when pnl <= -15
+        if pnl_pct <= (sl_pct + hot_zone):
+            return hot
+        # Near take-profit or above: e.g. TP=100, hot_zone=15 → hot when pnl >= 85
+        if pnl_pct >= (tp_pct - hot_zone):
+            return hot
+
+    return active
 
 
 def main():
@@ -456,7 +505,7 @@ def main():
             print("Guardian already running (lock held). Exiting.")
             sys.exit(0)
 
-        log(f"Guardian started (interval: {args.interval}s, dry-run: {args.dry_run})")
+        log(f"Guardian started (adaptive interval, dry-run: {args.dry_run})")
         _render_tui()
         global _check_counter
         try:
@@ -473,8 +522,15 @@ def main():
                         log("  ✅ No exit signals")
                 except Exception as e:
                     log(f"  ❌ Error: {e}")
+
+                # Adaptive interval — re-read config each cycle
+                tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+                interval = _compute_adaptive_interval(tcfg)
+                _watch_interval = interval
+                log(f"  ⏱ Next check in {interval}s")
+
                 _render_tui()
-                time.sleep(args.interval)
+                time.sleep(interval)
         except KeyboardInterrupt:
             log("Guardian stopped (Ctrl+C)")
             if _tui_enabled:

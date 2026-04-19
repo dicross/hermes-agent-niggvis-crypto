@@ -96,6 +96,20 @@ jupiter:
   max_priority_fee_sol: 0.005
 
 # =============================================================================
+# Guardian (adaptive price monitor)
+# =============================================================================
+# Guardian adjusts check frequency based on position status:
+#   idle    = no open positions (slow polling, save resources)
+#   active  = positions open, normal range (moderate polling)
+#   hot     = position near SL or TP threshold (fast polling)
+# "Near" is defined by hot_zone_pct — e.g. 15 means within 15% of SL or TP.
+guardian:
+  interval_idle: 120
+  interval_active: 20
+  interval_hot: 10
+  hot_zone_pct: 15
+
+# =============================================================================
 # Notifications (Telegram)
 # =============================================================================
 notifications:
