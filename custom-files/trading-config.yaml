@@ -42,7 +42,7 @@ position_sizing:
   # Max number of open positions at once
   max_positions: 5
   # Min SOL to keep in wallet (for gas fees + safety buffer)
-  min_wallet_balance: 0.05
+  min_wallet_balance: 0.01
 
 # =============================================================================
 # Risk Management
