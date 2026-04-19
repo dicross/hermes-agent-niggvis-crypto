@@ -10,7 +10,15 @@ Usage:
     python3 guardian.py              # One-shot check
     python3 guardian.py --watch      # Continuous loop (every 2 min)
     python3 guardian.py --watch --interval 180   # Every 3 min
+    python3 guardian.py --watch --history 5      # Show last 5 runs
     python3 guardian.py --dry-run    # Check but don't sell
+    python3 guardian.py --no-tui     # Disable screen clearing (for logs)
+
+VPS/SSH — run inside tmux or screen so it survives disconnect:
+    tmux new -s guardian
+    python3 guardian.py --watch
+    # Ctrl+B then D to detach
+    # tmux attach -t guardian  to reattach
 
 Designed to be lightweight — no LLM calls, just API + math.
 Run alongside hermes gateway for real-time protection.
@@ -19,10 +27,12 @@ Run alongside hermes gateway for real-time protection.
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 import fcntl
@@ -32,10 +42,11 @@ import fcntl
 # ---------------------------------------------------------------------------
 
 JOURNAL_PATH = os.path.expanduser("~/.hermes/memories/trade-journal.json")
-RISK_CONFIG_PATH = os.path.expanduser("~/.hermes/memories/risk-config.json")
+TRADING_CONFIG_PATH = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
 GUARDIAN_LOCK = os.path.expanduser("~/.hermes/cron/.guardian.lock")
 GUARDIAN_LOG = os.path.expanduser("~/.hermes/cron/guardian.log")
 DEXSCREENER_BASE = "https://api.dexscreener.com"
+SKILLS_DIR = os.path.expanduser("~/.hermes/skills")
 
 # ---------------------------------------------------------------------------
 # Lock (prevent overlapping runs)
@@ -72,16 +83,86 @@ def release_lock():
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Run history for TUI display
+_run_history: deque = deque(maxlen=10)
+_current_run_lines: list = []
+_tui_enabled: bool = True
+_history_size: int = 3
+
+
+def _local_now() -> datetime:
+    """Return current local time (uses system timezone)."""
+    return datetime.now().astimezone()
+
 
 def log(msg: str):
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    ts = _local_now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
-    print(line)
+    _current_run_lines.append(line)
+    # Always append to log file (with UTC for consistency)
     try:
         with open(GUARDIAN_LOG, "a") as f:
-            f.write(line + "\n")
+            ts_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"[{ts_utc}] {msg}\n")
     except Exception:
         pass
+
+
+def _flush_run():
+    """Save current run lines to history and reset."""
+    global _current_run_lines
+    if _current_run_lines:
+        _run_history.append(list(_current_run_lines))
+        _current_run_lines = []
+
+
+def _render_tui():
+    """Clear screen and render last N runs + current."""
+    if not _tui_enabled:
+        # Fallback: just print current run lines normally
+        for line in _current_run_lines:
+            print(line)
+        return
+
+    term_width = shutil.get_terminal_size((80, 24)).columns
+    separator = "─" * min(term_width, 72)
+
+    # Move cursor to top-left and clear screen
+    sys.stdout.write("\033[2J\033[H")
+
+    # Header
+    now = _local_now().strftime("%H:%M:%S %Z")
+    print(f"🛡️  GUARDIAN  │  {now}  │  interval: {_watch_interval}s  │  history: {_history_size}")
+    print(separator)
+
+    # Previous runs (dimmed)
+    history_to_show = list(_run_history)[-_history_size:]
+    if history_to_show:
+        for i, run_lines in enumerate(history_to_show):
+            # Dim older runs
+            for line in run_lines:
+                sys.stdout.write(f"\033[2m{line}\033[0m\n")
+            if i < len(history_to_show) - 1:
+                print(f"\033[2m{separator}\033[0m")
+        print(separator)
+
+    # Current run (bright)
+    if _current_run_lines:
+        for line in _current_run_lines:
+            print(line)
+    else:
+        print("  Waiting for next check...")
+
+    # Footer
+    print(separator)
+    next_check = _local_now().strftime("%H:%M:%S")
+    print(f"  Next check in ~{_watch_interval}s  │  Ctrl+C to stop")
+
+    sys.stdout.flush()
+
+
+# Watch interval (set from args)
+_watch_interval: int = 120
 
 
 def _http_get(url: str) -> dict | list | None:
@@ -117,6 +198,67 @@ def load_json(path: str) -> dict:
         return json.load(f)
 
 
+def _parse_yaml_flat(path: str) -> dict:
+    """Minimal YAML parser for trading config."""
+    if not os.path.exists(path):
+        return {}
+    result = {}
+    stack = [(0, result)]
+    with open(path) as f:
+        for line in f:
+            stripped = line.rstrip()
+            if not stripped or stripped.lstrip().startswith("#"):
+                continue
+            indent = len(line) - len(line.lstrip())
+            content = stripped.strip()
+            if ":" not in content:
+                continue
+            key, _, val = content.partition(":")
+            key = key.strip()
+            val = val.strip()
+            if val and val[0] in ('"', "'") and val[-1] == val[0]:
+                val = val[1:-1]
+            while len(stack) > 1 and stack[-1][0] >= indent:
+                stack.pop()
+            parent = stack[-1][1]
+            if val == "" or val == "[]":
+                if val == "[]":
+                    parent[key] = []
+                else:
+                    child = {}
+                    parent[key] = child
+                    stack.append((indent, child))
+            else:
+                if val.lower() == "true":
+                    val = True
+                elif val.lower() == "false":
+                    val = False
+                elif val.lower() in ("null", "none"):
+                    val = None
+                else:
+                    try:
+                        val = int(val)
+                    except ValueError:
+                        try:
+                            val = float(val)
+                        except ValueError:
+                            pass
+                parent[key] = val
+    return result
+
+
+def _cfg(cfg: dict, *keys, default=None):
+    d = cfg
+    for k in keys:
+        if isinstance(d, dict):
+            d = d.get(k)
+        else:
+            return default
+        if d is None:
+            return default
+    return d
+
+
 def save_json(path: str, data: dict):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
@@ -129,10 +271,33 @@ def save_json(path: str, data: dict):
 # ---------------------------------------------------------------------------
 
 
+def _execute_jupiter_sell(address: str) -> bool:
+    """Execute real sell via Jupiter. Returns True if successful."""
+    jupiter_script = os.path.join(SKILLS_DIR, "trade-executor", "scripts", "jupiter_swap.py")
+    if not os.path.exists(jupiter_script):
+        log("  ⚠️ jupiter_swap.py not found — cannot execute real sell")
+        return False
+    try:
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, jupiter_script, "sell", "--token", address, "--pct", "100"],
+            capture_output=True, text=True, timeout=60
+        )
+        if "Success" in result.stdout:
+            log(f"  🔗 Jupiter sell executed")
+            return True
+        else:
+            log(f"  ⚠️ Jupiter sell may have failed: {result.stdout[-200:]}")
+            return False
+    except Exception as e:
+        log(f"  ❌ Jupiter sell error: {e}")
+        return False
+
+
 def check_positions(dry_run: bool = False) -> list:
     """Check all open positions. Returns list of actions taken."""
     journal = load_json(JOURNAL_PATH)
-    risk_cfg = load_json(RISK_CONFIG_PATH)
+    tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
 
     trades = journal.get("trades", [])
     open_trades = [t for t in trades if t.get("status") == "open"]
@@ -140,9 +305,10 @@ def check_positions(dry_run: bool = False) -> list:
     if not open_trades:
         return []
 
-    sl_pct = risk_cfg.get("stop_loss_pct", -30)
-    tp_pct = risk_cfg.get("take_profit_min_pct", 100)
-    kill = risk_cfg.get("kill_switch", False)
+    sl_pct = _cfg(tcfg, "risk", "stop_loss_pct", default=-30)
+    tp_pct = _cfg(tcfg, "risk", "take_profit_pct", default=100)
+    kill = _cfg(tcfg, "risk", "kill_switch", default=False)
+    mode = _cfg(tcfg, "mode", default="paper")
 
     actions = []
 
@@ -168,7 +334,10 @@ def check_positions(dry_run: bool = False) -> list:
             log(f"  🚨 {action}")
 
             if not dry_run:
-                # Close trade directly in journal
+                # Real mode: execute Jupiter sell first
+                if mode == "real":
+                    _execute_jupiter_sell(addr)
+                # Close trade in journal
                 t["status"] = "closed"
                 t["exit_price"] = price
                 t["exit_time"] = datetime.now(timezone.utc).isoformat()
@@ -185,6 +354,8 @@ def check_positions(dry_run: bool = False) -> list:
             log(f"  🎯 {action}")
 
             if not dry_run:
+                if mode == "real":
+                    _execute_jupiter_sell(addr)
                 t["status"] = "closed"
                 t["exit_price"] = price
                 t["exit_time"] = datetime.now(timezone.utc).isoformat()
@@ -199,10 +370,12 @@ def check_positions(dry_run: bool = False) -> list:
         elif kill:
             log(f"  🔴 KILL SWITCH — closing #{t['id']} {t.get('token', '?')}")
             if not dry_run:
+                if mode == "real":
+                    _execute_jupiter_sell(addr)
                 t["status"] = "closed"
                 t["exit_price"] = price
                 t["exit_time"] = datetime.now(timezone.utc).isoformat()
-                t["exit_reason"] = f"Kill switch ({risk_cfg.get('kill_reason', 'manual')})"
+                t["exit_reason"] = f"Kill switch ({_cfg(tcfg, 'risk', 'kill_reason', default='manual')})"
                 t["pnl_pct"] = round(pnl_pct, 2)
                 t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
             actions.append({"type": "KILL", "id": t["id"], "pnl": pnl_pct})
@@ -225,36 +398,56 @@ def check_positions(dry_run: bool = False) -> list:
 
 
 def main():
+    global _tui_enabled, _history_size, _watch_interval
+
     parser = argparse.ArgumentParser(description="Position Guardian — fast price monitor")
     parser.add_argument("--watch", action="store_true", help="Continuous monitoring loop")
     parser.add_argument("--interval", type=int, default=120, help="Check interval in seconds (default: 120)")
+    parser.add_argument("--history", type=int, default=3, help="Number of past runs to display (default: 3)")
     parser.add_argument("--dry-run", action="store_true", help="Check but don't execute sells")
+    parser.add_argument("--no-tui", action="store_true", help="Disable TUI (plain log output, good for piping)")
     args = parser.parse_args()
+
+    _tui_enabled = not args.no_tui and sys.stdout.isatty()
+    _history_size = args.history
+    _watch_interval = args.interval
 
     if args.watch:
         if not acquire_lock():
             print("Guardian already running (lock held). Exiting.")
             sys.exit(0)
 
-        log(f"🛡️ Guardian started (interval: {args.interval}s, dry-run: {args.dry_run})")
+        log(f"Guardian started (interval: {args.interval}s, dry-run: {args.dry_run})")
+        _render_tui()
         try:
             while True:
+                _flush_run()
                 try:
+                    ts = _local_now().strftime("%H:%M:%S")
+                    log(f"🔍 Check #{len(_run_history) + 1} at {ts}")
                     actions = check_positions(dry_run=args.dry_run)
                     if actions:
                         log(f"  → {len(actions)} action(s) taken")
+                    else:
+                        log("  ✅ No exit signals")
                 except Exception as e:
-                    log(f"  Error: {e}")
+                    log(f"  ❌ Error: {e}")
+                _render_tui()
                 time.sleep(args.interval)
         except KeyboardInterrupt:
             log("Guardian stopped (Ctrl+C)")
+            if _tui_enabled:
+                print("\n👋 Guardian stopped.")
         finally:
             release_lock()
     else:
+        _tui_enabled = False  # One-shot always plain
         log("🛡️ Guardian one-shot check")
         actions = check_positions(dry_run=args.dry_run)
         if not actions:
             log("  No exit signals.")
+        for line in _current_run_lines:
+            print(line)
 
 
 if __name__ == "__main__":

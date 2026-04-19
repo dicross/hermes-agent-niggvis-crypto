@@ -1,7 +1,7 @@
 # Hermes Agent Niggvis Crypto — Instalacja
 
 > Autonomiczny agent AI do crypto tradingu na Solanie.
-> Bazuje na Hermes Agent (Nous Research) z personą Niggvis i integracją z Trojan on Solana.
+> Bazuje na Hermes Agent (Nous Research) z personą Niggvis i Jupiter API (on-chain swaps).
 > Customizacja przez pliki w `~/.hermes/` — bez modyfikacji kodu źródłowego.
 
 ---
@@ -171,27 +171,52 @@ hermes gateway setup
 hermes gateway start
 ```
 
-### 4.9 Konfiguracja Trojan on Solana
+### 4.9 Konfiguracja Jupiter Wallet (trading)
 
-Trojan on Solana to osobny bot na Telegramie — Hermes będzie wysyłał mu komendy.
+Hermes wykonuje swapy on-chain przez Jupiter V2 Meta-Aggregator.
+Potrzebny jest dedykowany wallet z keypairem.
 
+```bash
+# 1. Utwórz katalog na sekrety
+mkdir -p ~/.hermes/secrets
+chmod 700 ~/.hermes/secrets
+ 
+# 2. Wygeneruj nowy keypair (lub skopiuj istniejący)
+# Format: JSON array of bytes, np. [174,52,3,...]
+# Możesz użyć solana-keygen:
+solana-keygen new --outfile ~/.hermes/secrets/trading-wallet.json --no-bip39-passphrase
+ 
+# Lub skopiuj istniejący keypair:
+# cp /sciezka/do/keypair.json ~/.hermes/secrets/trading-wallet.json
+chmod 600 ~/.hermes/secrets/trading-wallet.json
+ 
+# 3. Skopiuj trading config
+cp custom-files/trading-config.yaml ~/.hermes/memories/trading-config.yaml
+ 
+# 4. Zainstaluj solders (do podpisywania transakcji)
+pip install solders
+ 
+# 5. Wpłać SOL na adres walleta
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet
+# → Pokaże adres i balance. Wyślij min. 0.1 SOL na start.
+ 
+# 6. (Opcjonalnie) Ustaw Jupiter API key w .env
+# JUPITER_API_KEY=twoj-klucz   # bez klucza działa, ale z limitem
 ```
-Konfiguracja:
-1. Otwórz Trojan on Solana (@solaboratorybot) na Telegramie
-2. Skonfiguruj wallet (import lub utwórz nowy)
-3. Wpłać SOL na wallet Trojana (min. 0.5 SOL na start)
-4. Zanotuj chat ID Trojana → wpisz do ~/.hermes/.env jako TROJAN_BOT_CHAT_ID
-5. Ustaw w Trojanie:
-   - Auto-buy: OFF (Hermes będzie decydował)
-   - Slippage: 15-20%
-   - Priority fee: medium
-   - MEV protection: ON
+
+> **BEZPIECZEŃSTWO**: Trading wallet to osobny wallet z ograniczonym budżetem.
+> NIE TRZYMAJ tu dużych kwot. Keypair nigdy nie opuszcza maszyny.
+> Agent podpisuje transakcje lokalnie — prywatny klucz nie jest wysyłany do API.
+
+### 4.10 Zainstaluj custom skills
+
+```bash
+bash custom-files/install-skills.sh
 ```
 
-> **BEZPIECZEŃSTWO**: Trojan wallet to osobny wallet z ograniczonym budżetem.
-> NIE TRZYMAJ tu dużych kwot. Start: $100 w SOL + tokeny.
+Skrypt kopiuje 5 skilli + trading-config.yaml do `~/.hermes/`.
 
-### 4.10 Weryfikacja instalacji
+### 4.11 Weryfikacja instalacji
 
 ```bash
 hermes doctor        # Pełna diagnostyka
@@ -247,23 +272,26 @@ ln -sf "$(pwd)/venv/bin/hermes" ~/.local/bin/hermes
 
 ---
 
-## 6. Instalacja na VPS (Contabo — produkcja) — TODO
+## 6. Instalacja na VPS (Contabo — produkcja)
 
-VPS będzie korzystał wyłącznie z API (Mistral / NIM), bez Ollama.
-Instrukcja zostanie uzupełniona po uruchomieniu na WSL.
+VPS korzysta wyłącznie z API (Mistral / NIM / Qwen), bez Ollama.
 
-Szkic:
+### 6.1 Podstawowa instalacja
+
 ```bash
 # 1. SSH do VPS
 ssh root@<contabo-ip>
  
 # 2. Utwórz użytkownika (nie rób jako root)
-adduser hermes
-usermod -aG sudo hermes
-su - hermes
+adduser niggvis
+usermod -aG sudo niggvis
+su - niggvis
  
-# 3. Klonuj i zainstaluj
-cd ~/projects
+# 3. Zainstaluj tmux (jeśli nie ma)
+sudo apt update && sudo apt install -y tmux
+ 
+# 4. Klonuj i zainstaluj
+mkdir -p ~/projects && cd ~/projects
 git clone git@github.com:dicross/hermes-agent-niggvis-crypto.git
 cd hermes-agent-niggvis-crypto
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -271,21 +299,165 @@ source ~/.bashrc
 uv venv venv --python 3.11
 export VIRTUAL_ENV="$(pwd)/venv"
 uv pip install -e ".[all]"
+pip install solders   # do Jupiter swapów
  
-# 4. Konfiguracja (Mistral/NIM, Telegram gateway, Trojan)
-mkdir -p ~/.hermes/{cron,sessions,logs,memories,skills,pairing,hooks}
+# 5. Konfiguracja
+mkdir -p ~/.hermes/{cron,sessions,logs,memories,skills,pairing,hooks,secrets}
 cp custom-files/config.example.yaml ~/.hermes/config.yaml
 cp custom-files/.env.example ~/.hermes/.env
 cp custom-files/SOUL.md ~/.hermes/SOUL.md
 cp custom-files/MEMORY.md ~/.hermes/memories/MEMORY.md
-# → edytuj .env z kluczami API
+bash custom-files/install-skills.sh
+# → edytuj ~/.hermes/.env z kluczami API
+nano ~/.hermes/.env
  
-# 5. Konfiguracja systemd (24/7)
-# TODO: plik .service do hermes gateway
+# 6. Skopiuj keypair walleta (z dev maszyny)
+# scp niggvis@dev-machine:~/.hermes/secrets/trading-wallet.json ~/.hermes/secrets/
+chmod 600 ~/.hermes/secrets/trading-wallet.json
  
-# 6. Start
+# 7. Globalny dostęp
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/venv/bin/hermes" ~/.local/bin/hermes
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+ 
+# 8. Telegram gateway
 hermes gateway setup
+```
+
+### 6.2 Uruchamianie w tmux (zalecane)
+
+tmux utrzymuje procesy po rozłączeniu SSH.
+
+```bash
+# Utwórz sesję z dwoma oknami: gateway + guardian
+tmux new-session -d -s hermes
+ 
+# Okno 0: Hermes gateway (Telegram bot + cron)
+tmux send-keys -t hermes:0 'hermes gateway start' Enter
+ 
+# Okno 1: Guardian (fast price monitor)
+tmux new-window -t hermes:1 -n guardian
+tmux send-keys -t hermes:1 'python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5' Enter
+ 
+# Attach — podgląd na żywo
+tmux attach -t hermes
+ 
+# Nawigacja w tmux:
+#   Ctrl+B, 0    — przejdź do okna gateway
+#   Ctrl+B, 1    — przejdź do okna guardian
+#   Ctrl+B, D    — detach (procesy działają dalej)
+#   Ctrl+B, [    — scroll mode (q aby wyjść)
+```
+
+Po rozłączeniu SSH:
+```bash
+# Reattach do sesji
+tmux attach -t hermes
+ 
+# Sprawdź czy działa (bez attach)
+tmux list-sessions
+# hermes: 2 windows (created ...)
+```
+
+### 6.3 Alternatywa: screen
+
+```bash
+# Start
+screen -S hermes
 hermes gateway start
+# Ctrl+A, D — detach
+ 
+# Nowe okno na guardian
+screen -S guardian
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
+# Ctrl+A, D — detach
+ 
+# Reattach
+screen -r hermes
+screen -r guardian
+ 
+# Lista sesji
+screen -ls
+```
+
+### 6.4 Alternatywa: systemd (pełny autostart)
+
+Jeśli VPS restartuje się — tmux nie przeżyje. systemd uruchomi procesy automatycznie.
+
+```bash
+# Utwórz plik serwisu: hermes gateway
+sudo tee /etc/systemd/system/hermes-gateway.service << 'EOF'
+[Unit]
+Description=Hermes Agent Telegram Gateway
+After=network-online.target
+Wants=network-online.target
+ 
+[Service]
+Type=simple
+User=niggvis
+WorkingDirectory=/home/niggvis/projects/hermes-agent-niggvis-crypto
+EnvironmentFile=/home/niggvis/.hermes/.env
+ExecStart=/home/niggvis/.local/bin/hermes gateway start
+Restart=on-failure
+RestartSec=10
+ 
+[Install]
+WantedBy=multi-user.target
+EOF
+ 
+# Utwórz plik serwisu: guardian
+sudo tee /etc/systemd/system/hermes-guardian.service << 'EOF'
+[Unit]
+Description=Hermes Guardian — Price Monitor
+After=network-online.target
+Wants=network-online.target
+ 
+[Service]
+Type=simple
+User=niggvis
+WorkingDirectory=/home/niggvis/.hermes/skills/trade-executor/scripts
+EnvironmentFile=/home/niggvis/.hermes/.env
+ExecStart=/home/niggvis/projects/hermes-agent-niggvis-crypto/venv/bin/python3 guardian.py --watch --no-tui
+Restart=on-failure
+RestartSec=30
+ 
+[Install]
+WantedBy=multi-user.target
+EOF
+ 
+# Włącz i uruchom
+sudo systemctl daemon-reload
+sudo systemctl enable hermes-gateway hermes-guardian
+sudo systemctl start hermes-gateway hermes-guardian
+ 
+# Status
+sudo systemctl status hermes-gateway
+sudo systemctl status hermes-guardian
+ 
+# Logi
+journalctl -u hermes-gateway -f
+journalctl -u hermes-guardian -f
+```
+
+> **Rekomendacja**: Na początek tmux (łatwiejszy debug). Jak działa stabilnie → systemd.
+> Oba podejścia można łączyć: systemd do gateway, tmux do guardiana (bo ma TUI).
+
+### 6.5 Aktualizacja na VPS
+
+```bash
+cd ~/projects/hermes-agent-niggvis-crypto
+git pull origin main
+bash custom-files/install-skills.sh
+ 
+# Jeśli systemd:
+sudo systemctl restart hermes-gateway hermes-guardian
+ 
+# Jeśli tmux:
+tmux send-keys -t hermes:0 C-c
+tmux send-keys -t hermes:0 'hermes gateway start' Enter
+tmux send-keys -t hermes:1 C-c
+tmux send-keys -t hermes:1 'python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5' Enter
 ```
 
 ---
@@ -351,6 +523,7 @@ hermes model                                   # Interaktywny wybór
 │   │   ├── #CHEATSHEET.md            ← codzienny cheatsheet
 │   │   └── #GIT-WORKFLOW.md          ← git workflow
 │   ├── config.example.yaml            ← szablon config
+│   ├── trading-config.yaml            ← trading config (SL/TP/sizing/Jupiter)
 │   ├── .env.example                   ← szablon kluczy API
 │   ├── SOUL.md                        ← persona Niggvis crypto
 │   └── MEMORY.md                      ← profesjonalna wiedza crypto
@@ -370,13 +543,17 @@ hermes model                                   # Interaktywny wybór
 ├── SOUL.md                            ← persona Niggvis (z custom-files)
 ├── memories/
 │   ├── MEMORY.md                      ← wiedza crypto (z custom-files)
-│   └── USER.md                        ← profil Damiana (agent tworzy/aktualizuje)
+│   ├── USER.md                        ← profil Damiana (agent tworzy/aktualizuje)
+│   └── trading-config.yaml            ← trading config (install-skills.sh kopiuje)
+├── secrets/
+│   └── trading-wallet.json            ← keypair dedykowanego walleta
 ├── skills/
 │   ├── solana/                        ← Solana blockchain skill
-│   ├── crypto-scanner/                ← agent stworzy
-│   ├── trade-executor/                ← agent stworzy
-│   ├── trade-journal/                 ← agent stworzy
-│   └── risk-manager/                  ← agent stworzy
+│   ├── crypto-scanner/                ← skanowanie tokenów
+│   ├── trade-executor/                ← executor + Jupiter + guardian
+│   ├── trade-journal/                 ← journal + learning
+│   ├── onchain-analyzer/              ← analiza bezpieczeństwa tokenów
+│   └── risk-manager/                  ← limity, kill switch
 ├── sessions/                          ← historia sesji
 ├── logs/                              ← logi
 └── cron/                              ← scheduled jobs (skanowanie, raporty)
@@ -425,11 +602,25 @@ python3 ~/.hermes/skills/solana/scripts/solana_client.py stats
 export SOLANA_RPC_URL="https://your-helius-or-quicknode-url"
 ```
 
-### "Trojan bot nie odpowiada"
+### "Jupiter swap failed"
 ```bash
-# Sprawdź czy Trojan bot jest aktywny na Telegramie
-# Sprawdź czy TROJAN_BOT_CHAT_ID jest poprawny w ~/.hermes/.env
-# Trojan wymaga aktywnej sesji — otwórz bota ręcznie na telefonie
+# Sprawdź balance walleta
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet
+ 
+# Za mało SOL? Doładuj wallet.
+# Slippage za niski? Zwiększ w trading-config.yaml:
+#   jupiter.slippage_bps: 2000  (20%)
+ 
+# Token nieaktywny? Sprawdź na DEXScreener czy ma liquidity.
+```
+
+### "Guardian: price unavailable"
+```bash
+# DEXScreener może mieć rate limit. Zwiększ interval:
+python3 guardian.py --watch --interval 180
+ 
+# Sprawdź ręcznie czy token istnieje:
+curl -s 'https://api.dexscreener.com/tokens/v1/solana/<address>' | head -c 200
 ```
 
 ---

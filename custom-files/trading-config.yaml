@@ -1,0 +1,111 @@
+# Niggvis Trading Config
+# Central trading configuration — used by executor, guardian, risk-manager.
+# Location: ~/.hermes/memories/trading-config.yaml
+#
+# Agent can propose changes via Telegram (requires your confirmation).
+# Manual edit: hermes config or direct file edit.
+
+# =============================================================================
+# Mode: paper | real
+# =============================================================================
+# paper = simulation only (logged to journal, no on-chain execution)
+# real  = live trading via Jupiter API (on-chain swaps)
+mode: paper
+
+# =============================================================================
+# Wallet
+# =============================================================================
+wallet:
+  # Solana RPC endpoint (private RPC recommended for real trading)
+  rpc_url: "https://api.mainnet-beta.solana.com"
+  # Path to keypair file (base58 or JSON array format)
+  # SECURITY: use a DEDICATED wallet, never your main wallet
+  keypair_path: "~/.hermes/secrets/trading-wallet.json"
+
+# =============================================================================
+# Position Sizing (dynamic — based on wallet balance)
+# =============================================================================
+position_sizing:
+  # % of available SOL balance to use per trade
+  # Example: balance 2 SOL, pct 5% → position size 0.1 SOL
+  position_pct: 5.0
+  # Hard min/max per trade (overrides % calculation)
+  min_trade_sol: 0.01
+  max_trade_sol: 0.15
+  # Max number of open positions at once
+  max_positions: 5
+  # Min SOL to keep in wallet (for gas fees + safety buffer)
+  min_wallet_balance: 0.05
+
+# =============================================================================
+# Risk Management
+# =============================================================================
+risk:
+  # Stop loss: auto-sell if position drops below this %
+  stop_loss_pct: -30
+  # Take profit: auto-sell if position rises above this %
+  take_profit_pct: 100
+  # Trailing stop: after hitting TP threshold, trail by this %
+  # Set to 0 to disable trailing (instant sell at TP)
+  trailing_stop_pct: 15
+  # Daily loss limit: stop trading if portfolio drops this % in a day
+  daily_loss_limit_pct: -20
+  # Weekly loss limit: stop trading entirely
+  weekly_loss_limit_pct: -40
+  # Kill switch: emergency stop all trading
+  kill_switch: false
+  kill_reason: null
+
+# =============================================================================
+# Token Filters (what to buy)
+# =============================================================================
+filters:
+  # Min safety score from onchain-analyzer (0-100)
+  min_safety_score: 60
+  # Min liquidity in USD
+  min_liquidity_usd: 10000
+  # Min number of holders
+  min_holders: 100
+  # Max age in hours (0 = no limit). Skip ultra-fresh tokens.
+  min_age_minutes: 30
+  # Max top holder % (anti-whale)
+  max_top_holder_pct: 15
+  # Must have socials (twitter/telegram/website)
+  require_socials: false
+
+# =============================================================================
+# Jupiter Swap Settings
+# =============================================================================
+jupiter:
+  # API endpoint
+  api_url: "https://lite-api.jup.ag/swap/v1"
+  # Slippage tolerance in basis points (100 = 1%)
+  # Memecoins need higher slippage (1500-2500 = 15-25%)
+  slippage_bps: 1500
+  # Priority fee in microlamports (higher = faster execution)
+  # auto_optimal, auto_high, auto_medium, or exact number
+  priority_fee: "auto_optimal"
+  # Max priority fee cap in SOL (safety limit)
+  max_priority_fee_sol: 0.005
+
+# =============================================================================
+# Notifications (Telegram)
+# =============================================================================
+notifications:
+  # Send alerts on trade execution
+  on_trade: true
+  # Send alerts on stop-loss / take-profit triggers
+  on_exit: true
+  # Send alerts when guardian detects large price moves
+  on_price_alert: true
+  # Require confirmation before config changes by agent
+  require_config_approval: true
+  # Alert threshold: notify if position moves more than X%
+  price_move_alert_pct: 20
+
+# =============================================================================
+# Config Change History (auto-updated by agent)
+# =============================================================================
+# Agent logs every config change here for audit trail.
+# Format: [{date, field, old, new, reason}]
+change_history: []

@@ -25,6 +25,17 @@ for skill_dir in "$SKILLS_SRC"/*/; do
     cp -r "$skill_dir" "$SKILLS_DST/$skill_name"
 done
 
+# Also install trading-config.yaml if not already present
+TRADING_CFG_SRC="$SCRIPT_DIR/trading-config.yaml"
+TRADING_CFG_DST="$HOME/.hermes/memories/trading-config.yaml"
+if [[ -f "$TRADING_CFG_SRC" && ! -f "$TRADING_CFG_DST" ]]; then
+    mkdir -p "$(dirname "$TRADING_CFG_DST")"
+    cp "$TRADING_CFG_SRC" "$TRADING_CFG_DST"
+    echo "  → trading-config.yaml installed to $TRADING_CFG_DST"
+elif [[ -f "$TRADING_CFG_DST" ]]; then
+    echo "  → trading-config.yaml already exists (skipped)"
+fi
+
 # Also install Solana blockchain skill from optional-skills if available
 SOLANA_SRC="$SCRIPT_DIR/../optional-skills/blockchain/solana"
 if [[ -d "$SOLANA_SRC" && ! -d "$SKILLS_DST/solana" ]]; then

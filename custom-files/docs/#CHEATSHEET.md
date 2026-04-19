@@ -110,6 +110,8 @@ Lub: `hermes model` (interaktywne menu).
 | `SOUL.md` | `~/.hermes/SOUL.md` | Persona Niggvisa (crypto trader) |
 | `MEMORY.md` | `~/.hermes/memories/MEMORY.md` | Wiedza crypto + trade rules |
 | `USER.md` | `~/.hermes/memories/USER.md` | Profil Damiana (agent aktualizuje) |
+| `trading-config.yaml` | `~/.hermes/memories/trading-config.yaml` | Trading config (SL, TP, sizing, Jupiter) |
+| `trading-wallet.json` | `~/.hermes/secrets/trading-wallet.json` | Keypair dedykowanego walleta |
 
 **Priorytet**: CLI args > config.yaml > .env > domyślne wartości.
 **Zasada**: Sekrety (klucze API) → `.env`. Reszta → `config.yaml`.
@@ -137,31 +139,57 @@ python3 ~/.hermes/skills/solana/scripts/solana_client.py whales --min-sol 500
 python3 ~/.hermes/skills/solana/scripts/solana_client.py stats
 ```
 
-Znane symbole: SOL, USDC, USDT, BONK, JUP, WETH, JTO, mSOL, WIF, MEW, BOME, PENGU.
+ZnanJupiter Swap — On-chain Execution
 
-### Trojan on Solana — Komendy (przez Telegram)
-
+```bash
+# Wallet info (adres, balance, auto-sizing)
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet
+ 
+# Balance konkretnego tokena
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py balance --token <ADDR>
+ 
+# Buy (auto-sized z trading-config.yaml)
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py buy --token <ADDR>
+ 
+# Buy (manual size)
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py buy --token <ADDR> --amount-sol 0.05
+ 
+# Sell 100%
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py sell --token <ADDR>
+ 
+# Quote only (no execution)
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py quote --input-mint SOL_MINT --output-mint <ADDR> --amount 50000000
 ```
-/buy <TOKEN_ADDRESS> <AMOUNT_SOL>      # Kup token za X SOL
-/sell <TOKEN_ADDRESS> <PERCENTAGE>      # Sprzedaj X% pozycji
-/positions                              # Pokaż otwarte pozycje
-/wallet                                 # Saldo walleta
-/settings                               # Ustawienia bota
-/referral                               # Referral info
-```
 
-> Hermes wysyła te komendy do Trojan bota przez Telegram API.
-> Agent NIE zarządza private keys — Trojan to robi.
+> Agent zarządza keypairem w ~/.hermes/secrets/trading-wallet.json
+> Jupiter API routuje przez Metis, JupiterZ, Dflow, OKX — best price.
+> Config: trading-config.yaml (slippage, priority fee)
 
 ### Darmowe API do skanowania
 
 | Źródło | Endpoint | Co daje |
 |--------|----------|---------|
-| DEXScreener | `api.dexscreener.com/latest/dex` | Nowe pary, volume, liquidity, price |
+| DEXScreener | `api.dexscreener.com` | Nowe pary, volume, liquidity, price |
+| Jupiter | `api.jup.ag/swap/v2` | On-chain swaps, best price routing |
 | Birdeye | `public-api.birdeye.so` | Token analytics, trending, OHLCV |
 | CoinGecko | `api.coingecko.com/api/v3` | Ceny, trending, market cap |
 | pump.fun | `frontend-api.pump.fun` | Nowe memecoiny na Solanie |
-| Solana RPC | `api.mainnet-beta.solana.com` | On-chain data (w Solana skill) |
+| Solana RPC | `api.mainnet-beta.solana.com` | On-chain data
+
+> Agent zarządza keypairem w ~/.hermes/secrets/trading-wallet.json
+> Jupiter API routuje przez Metis, JupiterZ, Dflow, OKX — best price.
+> Config: trading-config.yaml (slippage, priority fee)
+
+### Darmowe API do skanowania
+
+| Źródło | Endpoint | Co daje |
+|--------|----------|---------|
+| DEXScreener | `api.dexscreener.com` | Nowe pary, volume, liquidity, price |
+| Jupiter | `api.jup.ag/swap/v2` | On-chain swaps, best price routing |
+| Birdeye | `public-api.birdeye.so` | Token analytics, trending, OHLCV |
+| CoinGecko | `api.coingecko.com/api/v3` | Ceny, trending, market cap |
+| pump.fun | `frontend-api.pump.fun` | Nowe memecoiny na Solanie |
+| Solana RPC | `api.mainnet-beta.solana.com` | On-chain data |
 
 ### DEXScreener — endpointy (v1, April 2026)
 
@@ -209,17 +237,33 @@ python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py check --amount 0.0
 python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py kill --reason "suspicious"
 python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py resume
  
-# Trade Executor: buy, sell, check-exits, portfolio, mode
+# Trade Executor: buy, sell, check-exits, portfolio, mode, config-propose
 python3 ~/.hermes/skills/trade-executor/scripts/executor.py portfolio
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py buy --token <ADDR> --reason "trending"
 python3 ~/.hermes/skills/trade-executor/scripts/executor.py buy --token <ADDR> --amount 0.05 --reason "trending"
 python3 ~/.hermes/skills/trade-executor/scripts/executor.py sell --id 1 --reason "take profit"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py sell --id 1 --pct 50 --reason "partial TP"
 python3 ~/.hermes/skills/trade-executor/scripts/executor.py check-exits
 python3 ~/.hermes/skills/trade-executor/scripts/executor.py mode paper
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py mode real
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose --key stop_loss_pct --value -25 --reason "tighter SL"
+ 
+# Jupiter Swap: buy, sell, quote, balance, wallet
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py balance --token <ADDR>
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py buy --token <ADDR> --amount-sol 0.05
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py sell --token <ADDR> --pct 100
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py quote --input-mint SOL_MINT --output-mint <ADDR> --amount 50000000
  
 # Trade Journal: add, close, show, stats, export
 python3 ~/.hermes/skills/trade-journal/scripts/journal.py show
 python3 ~/.hermes/skills/trade-journal/scripts/journal.py stats --days 7
 python3 ~/.hermes/skills/trade-journal/scripts/journal.py export
+ 
+# Learning Engine: analyze, update, patterns
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py analyze
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py update
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns
 ```
 
 ### Birdeye — przydatne endpointy
@@ -270,7 +314,7 @@ Hermes ma wbudowany cron scheduler. Konfiguracja przez naturalny język:
 | Job | Schedule | Co robi |
 |-----|----------|--------|
 | `token-scan` | co 15 min | Skanuje trending, sprawdza safety, paper buy jeśli ok |
-| `position-check` | co 1h | Backup check stop-loss/take-profit (guardian robi to co 2 min) |
+| `position-check` | co 30 min | Backup check stop-loss/take-profit (guardian robi to co 2 min) |
 | `trend-analysis` | co 4h | Analiza trendów (metas, kategorie, porównanie z portfolio) |
 | `morning-report` | 8:00 UTC | Raport portfolio + risk status + wczorajsze P&L |
 | `daily-summary` | 23:00 UTC | Podsumowanie dnia + self-learning (learning.py update) |
@@ -417,8 +461,8 @@ uv pip install -e ".[all]"
  
 # Jeśli SOUL.md lub MEMORY.md się zmienił:
 cp custom-files/SOUL.md ~/.hermes/SOUL.md
-cp custom-files/MEMORY.md ~/.hermes/memories/MEMORY.md
-```
+cp custom-files/MEMORY.md ~/.hermes/memories w trading-config.yaml lub `export SOLANA_RPC_URL=...` |
+| Jupiter swap failed | Sprawdź balance: `jupiter_swap.py wallet`, sprawdź slippage w trading-config.yaml
 
 Merge z upstream (tylko WSL): Zob. `custom-files/docs/#GIT-WORKFLOW.md`.
 
@@ -432,8 +476,8 @@ Merge z upstream (tylko WSL): Zob. `custom-files/docs/#GIT-WORKFLOW.md`.
 | `uv: command not found` | `curl -LsSf https://astral.sh/uv/install.sh \| sh && source ~/.bashrc` |
 | `API key not set` | Uzupełnij `~/.hermes/.env` |
 | Model za wolny | Przełącz na Mistral/NIM (API) zamiast Ollama |
-| Solana RPC rate limit | Ustaw prywatny RPC: `export SOLANA_RPC_URL=...` |
-| Trojan nie odpowiada | Sprawdź sesję Trojana na TG, sprawdź chat ID w `.env` |
+| Solana RPC rate limit | Ustaw prywatny RPC w trading-config.yaml lub `export SOLANA_RPC_URL=...` |
+| Jupiter swap failed | Sprawdź balance: `jupiter_swap.py wallet`, sprawdź slippage w trading-config.yaml |
 | Kontekst za długi | `/compress` lub zmniejsz `compression.threshold` |
 | Tool calls nie działają | Upewnij się że model wspiera function calling |
 | Agent nie skanuje | Sprawdź cron: `/cron list` |

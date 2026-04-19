@@ -1,7 +1,7 @@
 ---
 name: risk-manager
-description: Enforce trading limits, rugpull detection, daily loss limits, and kill switch. Safety layer for all crypto trades. Reads rules from config, blocks unsafe trades.
-version: 1.0.0
+description: Enforce trading limits, rugpull detection, daily loss limits, and kill switch. Safety layer for all crypto trades. Reads from trading-config.yaml.
+version: 2.0.0
 author: Niggvis (Hermes Agent)
 license: MIT
 metadata:

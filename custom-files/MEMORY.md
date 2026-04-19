@@ -5,26 +5,24 @@
 - Agent: Niggvis (Hermes Agent instance)
 - Owner: Damian
 - Blockchain: Solana
-- Execution: Trojan on Solana (Telegram bot)
+- Execution: Jupiter V2 Meta-Aggregator (on-chain swaps)
 - Models: Mistral Large (primary), NVIDIA NIM Llama 3.3 70B (backup)
 - Platform: WSL → VPS (Contabo) docelowo
 - Language: polski (crypto terms po angielsku)
+- Config: ~/.hermes/memories/trading-config.yaml
 
 ---
 
-## Trading Rules (HARD LIMITS — nie naruszaj)
+## Trading Rules (from trading-config.yaml)
 
-### Position sizing
-- Max trade size: 0.1 SOL per trade (na start — $5-10)
-- Max open positions: 5 tokenów jednocześnie
-- Max portfolio allocation per token: 25%
-- Min remaining SOL balance: 0.05 SOL (na gas fees)
+All hard limits are now in `~/.hermes/memories/trading-config.yaml`.
+Agent reads config dynamically — no need to duplicate here.
 
-### Risk management
-- Stop-loss: -30% od entry (domyślny, chyba że analiza mówi inaczej)
-- Take-profit: minimum 2x entry (częściowy sell 50%, reszta trailing)
-- Daily loss limit: -20% portfolio → STOP TRADING na resztę dnia
-- Weekly loss limit: -40% portfolio → STOP TRADING + raport + czekaj na Damiana
+Key principles:
+- Position size is auto-calculated: % of available wallet balance
+- Stop-loss and take-profit are enforced by Guardian (every 2 min)
+- Kill switch stops all trading instantly
+- Config changes require Damian's approval via Telegram
 
 ### Execution rules
 - ZAWSZE sprawdź kontrakt przed kupnem (checklist poniżej)
@@ -32,7 +30,8 @@
 - NIGDY nie kupuj tokena ze 100% unlocked LP
 - NIGDY nie kupuj tokena z aktywnym mint authority (chyba że trusted project)
 - NIGDY nie wchodź w token który jest już +500% w ciągu godziny (za późno)
-- Przy paper trading: loguj trade'y ale NIE wysyłaj komend do Trojana
+- W paper mode: loguj trade'y ale NIE wykonuj on-chain
+- W real mode: Jupiter wykonuje swap, transakcja nieodwracalna
 
 ---
 
@@ -148,18 +147,40 @@ Phase 5: AFTERMATH (72h+)
 ```
 Base: https://api.dexscreener.com
  
-# Szukaj token po adresie
-GET /latest/dex/tokens/{tokenAddress}
+# Token data po adresie (300 rpm)
+GET /tokens/v1/solana/{tokenAddress}
  
-# Szukaj po nazwie/symbolu
+# Para po adresie (300 rpm)
+GET /token-pairs/v1/solana/{tokenAddress}
+ 
+# Szukaj po nazwie/symbolu (300 rpm)
 GET /latest/dex/search?q={query}
  
-# Top boosty (trending/promoted)
+# Nowe token profiles (60 rpm)
+GET /token-profiles/latest/v1
+ 
+# Top boosty — trending (60 rpm)
 GET /token-boosts/top/v1
  
-# Nowe pary na Solanie
-GET /latest/dex/pairs/solana
+# Trending meta categories (60 rpm)
+GET /metas/trending/v1
 ```
+
+> **Uwaga**: Zawsze dodawaj header `User-Agent` — bez niego Python urllib dostaje 403.
+
+### Jupiter (execution — on-chain swaps)
+```
+Base: https://api.jup.ag/swap/v2
+ 
+# Get quote + assembled transaction
+GET /order?inputMint={mint}&outputMint={mint}&amount={raw}&taker={pubkey}
+ 
+# Execute signed transaction
+POST /execute {signedTransaction, requestId}
+```
+
+SOL mint: So11111111111111111111111111111111111111112
+SOL decimals: 9 (1 SOL = 1,000,000,000 lamports)
 
 ### Birdeye (analytics, OHLCV, trending)
 ```
@@ -207,44 +228,33 @@ GET /coins/{mint_address}
 GET /trades/latest?mint={mint_address}
 ```
 
-### Solana RPC (on-chain data — w Solana skill)
+### Solana RPC (on-chain data)
 ```
 Default: https://api.mainnet-beta.solana.com
-Override: SOLANA_RPC_URL env variable
- 
-Skill: ~/.hermes/skills/solana/scripts/solana_client.py
-Commands: wallet, tx, token, activity, nft, whales, stats, price
+Override: SOLANA_RPC_URL env variable or trading-config.yaml wallet.rpc_url
 ```
 
 ---
 
-## Trojan on Solana — Integration
+## Execution — Jupiter Integration
 
-### Bot info
-- Bot: @solaboratorybot (Trojan on Solana) na Telegramie
-- Wallet: osobny wallet z ograniczonym budżetem
-- Komendy: przez Telegram (Hermes wysyła wiadomości do Trojana)
-
-### Komendy buy/sell
+### Architecture
 ```
-/buy <TOKEN_ADDRESS> <AMOUNT_SOL>      # Kup token
-/sell <TOKEN_ADDRESS> <PERCENTAGE>      # Sprzedaj % pozycji
-/sell <TOKEN_ADDRESS> 100               # Sprzedaj 100% (close position)
+Hermes Agent → executor.py → jupiter_swap.py → Jupiter V2 API → Solana blockchain
+                                                      ↑
+                                         All routers compete (Metis, JupiterZ, Dflow, OKX)
 ```
 
-### Komendy status
-```
-/positions                              # Otwarte pozycje
-/wallet                                 # Saldo
-/pnl                                    # Profit & Loss
-/settings                               # Ustawienia
-```
+### Wallet
+- Dedykowany wallet TYLKO do tradingu (nie główny wallet Damiana)
+- Keypair: ~/.hermes/secrets/trading-wallet.json
+- Slippage: 15% (konfigurowalny w trading-config.yaml)
+- Guardian sprawdza ceny co 2 min i auto-wykonuje SL/TP
 
-### Ustawienia Trojana (zalecane)
-- Auto-buy: OFF (Niggvis decyduje, nie Trojan)
-- Slippage: 15-20% (memecoiny mają wysoki slippage)
-- Priority fee: medium (balans cost vs speed)
-- MEV protection: ON (ochrona przed sandwich attacks)
+### Mode switch
+- paper: symulacja (journal + quotes, zero on-chain)
+- real: Jupiter wykonuje swap, transakcja nieodwracalna
+- Przełączanie: `executor.py mode paper` / `executor.py mode real`
 
 ---
 

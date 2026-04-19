@@ -40,7 +40,7 @@ JOBS = [
     },
     {
         "name": "position-check",
-        "schedule": "every 60m",
+        "schedule": "every 30m",
         "skills": ["trade-executor", "trade-journal", "crypto-scanner"],
         "prompt": (
             "Check all open positions for exit signals. Use trade-executor check-exits. "

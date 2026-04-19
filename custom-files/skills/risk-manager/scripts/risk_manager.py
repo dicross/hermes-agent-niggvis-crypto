@@ -10,8 +10,9 @@ Usage:
     python3 risk_manager.py config [--set key=value]
     python3 risk_manager.py limits
 
-Stores config in ~/.hermes/memories/risk-config.json
-Reads trades from ~/.hermes/memories/trade-journal.json
+Reads trading config from: ~/.hermes/memories/trading-config.yaml
+Reads trades from: ~/.hermes/memories/trade-journal.json
+Kill switch state: ~/.hermes/memories/risk-state.json
 """
 
 import argparse
@@ -24,21 +25,83 @@ from datetime import datetime, timezone, timedelta
 # Config
 # ---------------------------------------------------------------------------
 
-CONFIG_PATH = os.path.expanduser("~/.hermes/memories/risk-config.json")
+CONFIG_PATH = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
+STATE_PATH = os.path.expanduser("~/.hermes/memories/risk-state.json")
 JOURNAL_PATH = os.path.expanduser("~/.hermes/memories/trade-journal.json")
+
+# ---------------------------------------------------------------------------
+# YAML parser (minimal, no dependencies)
+# ---------------------------------------------------------------------------
+
+
+def _parse_yaml_flat(path: str) -> dict:
+    if not os.path.exists(path):
+        return {}
+    result = {}
+    stack = [(0, result)]
+    with open(path) as f:
+        for line in f:
+            stripped = line.rstrip()
+            if not stripped or stripped.lstrip().startswith("#"):
+                continue
+            indent = len(line) - len(line.lstrip())
+            content = stripped.strip()
+            if ":" not in content:
+                continue
+            key, _, val = content.partition(":")
+            key = key.strip()
+            val = val.strip()
+            if val and val[0] in ('"', "'") and val[-1] == val[0]:
+                val = val[1:-1]
+            while len(stack) > 1 and stack[-1][0] >= indent:
+                stack.pop()
+            parent = stack[-1][1]
+            if val == "" or val == "[]":
+                if val == "[]":
+                    parent[key] = []
+                else:
+                    child = {}
+                    parent[key] = child
+                    stack.append((indent, child))
+            else:
+                if val.lower() == "true":
+                    val = True
+                elif val.lower() == "false":
+                    val = False
+                elif val.lower() in ("null", "none"):
+                    val = None
+                else:
+                    try:
+                        val = int(val)
+                    except ValueError:
+                        try:
+                            val = float(val)
+                        except ValueError:
+                            pass
+                parent[key] = val
+    return result
+
+
+def _cfg(cfg: dict, *keys, default=None):
+    d = cfg
+    for k in keys:
+        if isinstance(d, dict):
+            d = d.get(k)
+        else:
+            return default
+        if d is None:
+            return default
+    return d
+
 
 DEFAULT_CONFIG = {
     "mode": "paper",
-    "max_trade_sol": 0.1,
+    "max_trade_sol": 0.15,
     "max_positions": 5,
     "daily_loss_limit_pct": -20,
     "min_safety_score": 60,
     "stop_loss_pct": -30,
-    "take_profit_min_pct": 100,
-    "total_budget_sol": 1.0,
-    "kill_switch": False,
-    "kill_reason": None,
-    "kill_time": None,
+    "take_profit_pct": 100,
 }
 
 # ---------------------------------------------------------------------------
@@ -47,24 +110,47 @@ DEFAULT_CONFIG = {
 
 
 def _load_config() -> dict:
-    if not os.path.exists(CONFIG_PATH):
-        _save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
-    with open(CONFIG_PATH, "r") as f:
-        cfg = json.load(f)
-    # Merge with defaults for any missing keys
-    for k, v in DEFAULT_CONFIG.items():
-        if k not in cfg:
-            cfg[k] = v
-    return cfg
+    """Load config from trading-config.yaml, flatten into risk-manager format."""
+    tcfg = _parse_yaml_flat(CONFIG_PATH)
+    state = _load_state()
+    return {
+        "mode": _cfg(tcfg, "mode", default="paper"),
+        "max_trade_sol": _cfg(tcfg, "position_sizing", "max_trade_sol", default=0.15),
+        "max_positions": _cfg(tcfg, "position_sizing", "max_positions", default=5),
+        "daily_loss_limit_pct": _cfg(tcfg, "risk", "daily_loss_limit_pct", default=-20),
+        "min_safety_score": _cfg(tcfg, "filters", "min_safety_score", default=60),
+        "stop_loss_pct": _cfg(tcfg, "risk", "stop_loss_pct", default=-30),
+        "take_profit_pct": _cfg(tcfg, "risk", "take_profit_pct", default=100),
+        "kill_switch": state.get("kill_switch", False),
+        "kill_reason": state.get("kill_reason"),
+        "kill_time": state.get("kill_time"),
+    }
+
+
+def _load_state() -> dict:
+    """Load kill switch state."""
+    if not os.path.exists(STATE_PATH):
+        return {"kill_switch": False}
+    with open(STATE_PATH) as f:
+        return json.load(f)
+
+
+def _save_state(state: dict):
+    os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+    tmp = STATE_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=2, default=str)
+    os.replace(tmp, STATE_PATH)
 
 
 def _save_config(cfg: dict):
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    tmp = CONFIG_PATH + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(cfg, f, indent=2, default=str)
-    os.replace(tmp, CONFIG_PATH)
+    """Save kill switch state only (other config lives in YAML)."""
+    state = {
+        "kill_switch": cfg.get("kill_switch", False),
+        "kill_reason": cfg.get("kill_reason"),
+        "kill_time": cfg.get("kill_time"),
+    }
+    _save_state(state)
 
 
 def _load_journal() -> dict:
@@ -153,11 +239,9 @@ def cmd_check(args):
                 approved = False
                 break
 
-    # 7. Budget check
-    invested = _get_total_invested(journal)
-    if invested + args.amount > cfg["total_budget_sol"]:
-        reasons.append(f"Budget exceeded: {invested:.4f} + {args.amount} > {cfg['total_budget_sol']} SOL")
-        approved = False
+    # 7. Budget check — use wallet balance concept via position sizing
+    # (no more total_budget_sol — it's dynamic now based on wallet balance)
+    # We check max_positions and max_trade_sol instead
 
     # Output
     if approved:
@@ -206,8 +290,7 @@ def cmd_status(args):
         print(f"    Since:  {cfg.get('kill_time', '?')}")
 
     print(f"\n  Open positions: {len(open_trades)} / {cfg['max_positions']}")
-    print(f"  Budget used:    {invested:.4f} / {cfg['total_budget_sol']} SOL")
-    print(f"  Budget free:    {cfg['total_budget_sol'] - invested:.4f} SOL")
+    print(f"  Invested:       {invested:.4f} SOL")
 
     pnl_icon = "✅" if daily_pnl >= 0 else "⚠️"
     print(f"\n  Daily P&L:      {pnl_icon} {daily_pnl:+.1f}% (limit: {cfg['daily_loss_limit_pct']}%)")
@@ -216,8 +299,9 @@ def cmd_status(args):
     print(f"\n  Limits:")
     print(f"    Max trade:    {cfg['max_trade_sol']} SOL")
     print(f"    Stop loss:    {cfg['stop_loss_pct']}%")
-    print(f"    Take profit:  {cfg['take_profit_min_pct']}% min")
+    print(f"    Take profit:  {cfg['take_profit_pct']}% min")
     print(f"    Min safety:   {cfg['min_safety_score']}")
+    print(f"\n  Config: {CONFIG_PATH}")
 
 
 def cmd_kill(args):
@@ -254,26 +338,11 @@ def cmd_config(args):
         key = key.strip()
         value = value.strip()
 
-        if key not in DEFAULT_CONFIG:
-            print(f"❌ Unknown config key: {key}")
-            print(f"   Valid keys: {', '.join(DEFAULT_CONFIG.keys())}")
-            sys.exit(1)
-
-        # Type coercion
-        default_type = type(DEFAULT_CONFIG[key])
-        if default_type == bool:
-            value = value.lower() in ("true", "1", "yes")
-        elif default_type == float:
-            value = float(value)
-        elif default_type == int:
-            value = int(value)
-
-        old_val = cfg.get(key)
-        cfg[key] = value
-        _save_config(cfg)
-        print(f"✅ {key}: {old_val} → {value}")
+        print(f"\n  ⚠️ Config changes should be made in: {CONFIG_PATH}")
+        print(f"  Or use: python3 executor.py config-propose --key {key} --value {value} --reason 'why'")
+        print(f"\n  Current {key}: {cfg.get(key, '?')}")
     else:
-        print("⚙️ RISK CONFIG\n")
+        print("⚙️ RISK CONFIG (from trading-config.yaml)\n")
         for k, v in cfg.items():
             print(f"  {k}: {v}")
         print(f"\n  Config file: {CONFIG_PATH}")
@@ -285,13 +354,10 @@ def cmd_limits(args):
     print("🛡️ HARD LIMITS\n")
     print(f"  Max single trade:     {cfg['max_trade_sol']} SOL")
     print(f"  Max open positions:   {cfg['max_positions']}")
-    print(f"  Total budget:         {cfg['total_budget_sol']} SOL")
     print(f"  Daily loss limit:     {cfg['daily_loss_limit_pct']}%")
     print(f"  Stop loss per trade:  {cfg['stop_loss_pct']}%")
-    print(f"  Min take profit:      {cfg['take_profit_min_pct']}%")
+    print(f"  Min take profit:      {cfg['take_profit_pct']}%")
     print(f"  Min safety score:     {cfg['min_safety_score']}")
-    print(f"\n  Mode: {cfg['mode'].upper()}")
-    print(f"  Kill switch: {'🔴 ON' if cfg['kill_switch'] else '🟢 OFF'}")
 
 
 # ---------------------------------------------------------------------------

@@ -1,19 +1,20 @@
 ---
 name: trade-executor
-description: Execute crypto trades on Solana — paper mode (simulation) and real mode (via Trojan on Solana). Integrates with risk-manager for pre-trade checks and trade-journal for logging.
-version: 1.0.0
+description: Execute crypto trades on Solana via Jupiter API — paper mode (simulation) and real mode (on-chain). Integrates with risk-manager for pre-trade checks, trade-journal for logging, and jupiter_swap for execution.
+version: 2.0.0
 author: Niggvis (Hermes Agent)
 license: MIT
 metadata:
   hermes:
-    tags: [Solana, Crypto, Trading, Execution, Paper, Trojan]
+    tags: [Solana, Crypto, Trading, Execution, Jupiter, Paper]
     related_skills: [risk-manager, onchain-analyzer, trade-journal, crypto-scanner]
 ---
  
-# Trade Executor — Buy & Sell on Solana
+# Trade Executor — Buy & Sell on Solana via Jupiter
  
 Executes trades in paper mode (simulation with journal logging) or real mode
-(via Trojan on Solana Telegram bot). All trades go through risk-manager first.
+(on-chain swaps via Jupiter V2 Meta-Aggregator). All trades go through
+risk-manager first. Position sizing is dynamic based on wallet balance.
  
 ---
  
@@ -24,111 +25,53 @@ Executes trades in paper mode (simulation with journal logging) or real mode
 - User says "buy X" or "sell X"
 - Cron: auto-sell on stop-loss / take-profit triggers
 - Portfolio check: evaluate open positions for exit
+- Config changes: propose changes for Damian's approval
  
 ---
  
 ## Prerequisites
  
-Python 3.11+ with standard library only.
-Requires: risk-manager skill, trade-journal skill, onchain-analyzer skill.
-For real mode: `TROJAN_BOT_CHAT_ID` env variable (future).
+Python 3.11+.
+For real mode: `pip install solders` (Solana transaction signing).
+Config: `~/.hermes/memories/trading-config.yaml`
+Keypair: `~/.hermes/secrets/trading-wallet.json`
  
 ---
  
 ## Quick Reference
  
 ```
-python3 executor.py buy --token <address> --amount <SOL> --reason "why"
+# Executor (high-level — integrates all skills)
+python3 executor.py buy --token <address> --reason "why"
+python3 executor.py buy --token <address> --amount 0.05 --reason "why"
 python3 executor.py sell --id <trade_id> --reason "why"
-python3 executor.py check-exits [--stop-loss] [--take-profit]
+python3 executor.py check-exits
 python3 executor.py portfolio
 python3 executor.py mode [paper|real]
+python3 executor.py config-propose --key <key> --value <val> --reason "why"
+ 
+# Jupiter Swap (low-level — direct on-chain)
+python3 jupiter_swap.py wallet
+python3 jupiter_swap.py buy --token <address> --amount-sol 0.05
+python3 jupiter_swap.py sell --token <address> --pct 100
+ 
+# Guardian (fast price monitor, no LLM)
+python3 guardian.py --watch
+python3 guardian.py --dry-run
 ```
  
 ---
  
-## Commands
- 
-### `buy` — Open a Position
- 
-```bash
-python3 executor.py buy --token <address> --amount 0.05 --reason "trending on DEX, safety 82"
-```
- 
-Pipeline:
-1. Fetch current price from DEXScreener
-2. Run onchain-analyzer safety check → get safety score
-3. Run risk-manager check → APPROVED/BLOCKED
-4. If paper mode → log to trade-journal with `--paper` flag
-5. If real mode → (future) send buy command to Trojan bot
-6. Output: trade confirmation or block reason
- 
-### `sell` — Close a Position
- 
-```bash
-python3 executor.py sell --id 3 --reason "hit 2x target"
-```
- 
-Pipeline:
-1. Fetch current price from DEXScreener
-2. Close trade in journal with exit price
-3. If real mode → (future) send sell command to Trojan bot
-4. Output: P&L summary
- 
-### `check-exits` — Scan Open Positions for Exit Signals
- 
-```bash
-python3 executor.py check-exits                    # check all triggers
-python3 executor.py check-exits --stop-loss        # only stop-loss
-python3 executor.py check-exits --take-profit      # only take-profit
-```
- 
-For each open position:
-- Fetch current price
-- Compare to entry price
-- If below stop-loss (-30%) → auto-sell
-- If above take-profit (min +100%) → flag for review (or auto-sell)
- 
-### `portfolio` — Show Current Holdings
- 
-```bash
-python3 executor.py portfolio
-```
- 
-Shows open positions with current prices, unrealized P&L, and exit signals.
- 
-### `mode` — Switch Paper/Real
- 
-```bash
-python3 executor.py mode          # show current
-python3 executor.py mode paper    # switch to paper
-python3 executor.py mode real     # switch to real (requires confirmation)
-```
- 
----
- 
-## Paper Trading Flow
+## Architecture
  
 ```
-1. crypto-scanner finds interesting token
-2. onchain-analyzer checks safety → score 78
-3. executor buy --token <addr> --amount 0.05 --reason "..."
-   ├─ risk-manager check → APPROVED
-   ├─ Get price from DEXScreener
-   └─ Log to trade-journal as PAPER trade
-4. Cron (hourly): executor check-exits
-   ├─ Fetch current prices
-   ├─ -30% → auto paper-sell (stop loss)
-   └─ +100% → flag or auto paper-sell (take profit)
-5. Daily: executor portfolio → summary
+executor.py -> risk-manager -> onchain-analyzer -> jupiter_swap.py -> Jupiter V2 -> Solana
+guardian.py -> DEXScreener prices -> SL/TP check -> jupiter_swap.py sell (real) / journal close (paper)
 ```
  
----
+## Config
  
-## Real Trading (Future — Phase 2)
+Central config: `~/.hermes/memories/trading-config.yaml`
  
-When switching to real mode, trade-executor will:
-1. Send buy/sell commands to Trojan on Solana (@solaboratorybot)
-2. Parse confirmation messages from Trojan
-3. Log actual tx hashes in trade-journal
-4. Require manual approval (configurable in risk-manager)
+Key settings: mode, position_sizing, risk (SL/TP), jupiter (slippage), filters.
+Agent can propose changes via `config-propose` (requires Damian's Telegram approval).
