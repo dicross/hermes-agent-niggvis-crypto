@@ -270,11 +270,11 @@ Hermes ma wbudowany cron scheduler. Konfiguracja przez naturalny język:
 | Job | Schedule | Co robi |
 |-----|----------|--------|
 | `token-scan` | co 15 min | Skanuje trending, sprawdza safety, paper buy jeśli ok |
-| `position-check` | co 1h | Sprawdza stop-loss/take-profit otwartych pozycji |
+| `position-check` | co 1h | Backup check stop-loss/take-profit (guardian robi to co 2 min) |
 | `trend-analysis` | co 4h | Analiza trendów (metas, kategorie, porównanie z portfolio) |
 | `morning-report` | 8:00 UTC | Raport portfolio + risk status + wczorajsze P&L |
-| `daily-summary` | 23:00 UTC | Podsumowanie dnia: trades, P&L, wnioski |
-| `weekly-recap` | Niedziela 10:00 | Tygodniowa analiza, export, strategia |
+| `daily-summary` | 23:00 UTC | Podsumowanie dnia + self-learning (learning.py update) |
+| `weekly-recap` | Niedziela 10:00 | Tygodniowa analiza + deep learning review + strategy update |
 
 ### Setup cron
 
@@ -287,6 +287,67 @@ python3 custom-files/setup-cron.py
  
 # Zainstaluj croniter (potrzebny do daily/weekly)
 uv pip install croniter
+```
+
+### Position Guardian (real-time SL/TP)
+
+Guardian to lekki monitor cen (BEZ LLM). Sprawdza co 2 min czy otwarty trade
+nie przekroczył stop-loss lub take-profit. Jeśli tak — zamyka trade natychmiast.
+
+```bash
+# Start (w tle, screen/tmux)
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
+ 
+# Co 3 min zamiast 2
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --interval 180
+ 
+# Dry run (sprawdza ale nie zamyka)
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --dry-run
+ 
+# Jednorazowy check
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py
+ 
+# Guardian log
+tail -f ~/.hermes/cron/guardian.log
+```
+
+Guardian blokuje drugie uruchomienie (file lock) — bezpieczne dla cron.
+
+### Self-Learning Engine
+
+Agent uczy się na zamkniętych trade'ach. Learning.py analizuje wzorce
+(statystycznie, bez LLM) i dopisuje je do MEMORY.md.
+
+```bash
+# Pokaż analizę
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py analyze
+ 
+# Analizuj + zapisz do MEMORY.md
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py update
+ 
+# Ostatnie 7 dni
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py update --days 7
+ 
+# Pokaż odkryte wzorce
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns
+```
+
+Daily-summary i weekly-recap automatycznie wywołują learning.py update.
+
+### Cron Viewer
+
+```bash
+# Overview wszystkich jobów + ostatni output
+python3 ~/projects/hermes-agent-niggvis-crypto/custom-files/scripts/cron_viewer.py
+ 
+# Szczegóły jednego joba
+python3 custom-files/scripts/cron_viewer.py --job token-scan
+ 
+# Czytaj ostatni output
+python3 custom-files/scripts/cron_viewer.py --job token-scan --read last
+ 
+# Guardian log
+python3 custom-files/scripts/cron_viewer.py --tail 50
 ```
 
 ### Zarządzanie cron (w sesji hermes)

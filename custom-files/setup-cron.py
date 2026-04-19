@@ -75,9 +75,15 @@ JOBS = [
         "schedule": "0 23 * * *",
         "skills": ["trade-journal", "trade-executor", "risk-manager", "crypto-scanner"],
         "prompt": (
-            "End of day trading summary. Run trade-journal stats --days 1 for today's trades. "
-            "Check trade-executor portfolio for open positions. Run risk-manager status. Write "
-            "a daily recap: trades made, wins/losses, lessons learned, what to watch tomorrow. "
+            "End of day trading summary with self-learning. "
+            "Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update` to analyze trades and update MEMORY.md with new patterns. "
+            "Step 2: Run trade-journal stats --days 1. "
+            "Step 3: Check trade-executor portfolio. "
+            "Step 4: Run risk-manager status. "
+            "Step 5: Read the output from learning.py — what patterns were discovered? "
+            "Write a daily recap: trades, P&L, lessons learned, discovered patterns, what to watch tomorrow. "
+            "Step 6: If any pattern has confidence HIGH, update risk-manager config accordingly "
+            "(e.g. raise min_safety_score). "
             "If daily loss limit was approached, flag it."
         ),
     },
@@ -86,10 +92,16 @@ JOBS = [
         "schedule": "0 10 * * 0",
         "skills": ["trade-journal", "trade-executor", "risk-manager", "crypto-scanner"],
         "prompt": (
-            "Weekly trading recap. Run trade-journal stats --days 7. Analyze: total P&L, win rate, "
-            "best/worst trades, average hold time, which token categories performed best. Compare "
-            "paper vs real results. Identify patterns - what worked, what didn't. Suggest adjustments "
-            "to strategy for next week. Export trades: trade-journal export."
+            "Weekly trading recap with deep learning review. "
+            "Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update --days 7` to refresh MEMORY.md. "
+            "Step 2: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns` to see all discovered patterns. "
+            "Step 3: Run trade-journal stats --days 7. Export trades: trade-journal export. "
+            "Step 4: Analyze: total P&L, win rate, best/worst trades, avg hold time, which signals worked. "
+            "Step 5: Compare paper vs real results. "
+            "Step 6: Based on patterns, suggest specific changes to risk-manager config "
+            "(min_safety_score, stop_loss_pct, take_profit_min_pct). "
+            "Step 7: Update MEMORY.md 'Known Patterns' section with new bullish/bearish signals. "
+            "Step 8: If win rate <40%, tighten filters. If >60%, consider loosening slightly."
         ),
     },
 ]
