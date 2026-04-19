@@ -9,6 +9,15 @@
 - Wallet keypair: `~/.hermes/secrets/trading-wallet.json`
 - Guardian log: `~/.hermes/cron/guardian.log`
 - Skills directory: `~/.hermes/skills/`
+- Python with solders: configured as `python_bin` in trading-config.yaml
+  (currently `~/projects/hermes-agent-niggvis-crypto/.venv/bin/python3`)
+
+### Important: Python venv
+Scripts that need `solders` (jupiter_swap.py) auto-detect the venv python
+from `python_bin` in trading-config.yaml. executor.py and guardian.py also
+read this setting when calling jupiter_swap as subprocess. You do NOT need
+to specify the python path manually — just use `python3 ~/.hermes/skills/...`
+and the scripts handle it internally.
 
 ### How to run tools (ALWAYS use full paths)
 ```bash

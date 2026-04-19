@@ -280,8 +280,15 @@ def _execute_jupiter_sell(address: str) -> bool:
         return False
     try:
         import subprocess
+        # Use python_bin from config (venv with solders)
+        tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+        python_bin = _cfg(tcfg, "python_bin", default=sys.executable)
+        if isinstance(python_bin, str):
+            python_bin = os.path.expanduser(python_bin)
+        if not os.path.exists(python_bin):
+            python_bin = sys.executable
         result = subprocess.run(
-            [sys.executable, jupiter_script, "sell", "--token", address, "--pct", "100"],
+            [python_bin, jupiter_script, "sell", "--token", address, "--pct", "100"],
             capture_output=True, text=True, timeout=60
         )
         if "Success" in result.stdout:

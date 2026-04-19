@@ -26,6 +26,35 @@ import urllib.request
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
+# Auto-reexec with venv python if solders not available
+# ---------------------------------------------------------------------------
+
+def _ensure_solders():
+    """If solders is not importable, re-exec with python_bin from config."""
+    try:
+        import importlib
+        importlib.import_module("solders")
+        return  # solders available, all good
+    except ImportError:
+        pass
+    # Try to find python_bin from trading-config.yaml
+    config_path = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
+    python_bin = None
+    if os.path.exists(config_path):
+        with open(config_path) as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped.startswith("python_bin:"):
+                    val = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                    python_bin = os.path.expanduser(val)
+                    break
+    if python_bin and os.path.exists(python_bin) and python_bin != sys.executable:
+        os.execv(python_bin, [python_bin] + sys.argv)
+    # If we get here, solders truly not available — scripts will fail on import later
+
+_ensure_solders()
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 

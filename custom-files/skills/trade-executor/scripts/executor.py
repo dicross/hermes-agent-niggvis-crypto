@@ -147,7 +147,13 @@ def _get_price(address: str) -> float | None:
 
 
 def _run_skill(script: str, args: list) -> tuple[int, str]:
-    cmd = [sys.executable, script] + args
+    tcfg = load_trading_config()
+    python_bin = _cfg(tcfg, "python_bin", default=sys.executable)
+    if isinstance(python_bin, str):
+        python_bin = os.path.expanduser(python_bin)
+    if not os.path.exists(python_bin):
+        python_bin = sys.executable
+    cmd = [python_bin, script] + args
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         return result.returncode, result.stdout + result.stderr

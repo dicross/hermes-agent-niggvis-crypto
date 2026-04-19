@@ -23,6 +23,13 @@ wallet:
   keypair_path: "~/.hermes/secrets/trading-wallet.json"
 
 # =============================================================================
+# Python binary (venv with solders installed)
+# =============================================================================
+# Full path to python with solders package. Used by executor, guardian, etc.
+# If solders is installed system-wide, set to "python3".
+python_bin: "~/projects/hermes-agent-niggvis-crypto/.venv/bin/python3"
+
+# =============================================================================
 # Position Sizing (dynamic — based on wallet balance)
 # =============================================================================
 position_sizing:
