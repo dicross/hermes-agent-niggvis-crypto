@@ -31,79 +31,82 @@ JOBS = [
         "name": "token-scan",
         "schedule": "every 15m",
         "skills": ["crypto-scanner", "onchain-analyzer", "trade-executor", "risk-manager", "trade-journal"],
+        "deliver": "telegram",
         "prompt": (
-            "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10, "
-            "then for the top 3 run onchain-analyzer safety. Report any token with safety "
-            "score >= 60 and liquidity > $10k. If you find a good candidate, run the full "
-            "pipeline: analyze -> risk check -> buy if approved. Position size is auto-calculated "
-            "from trading-config.yaml. Mode (paper/real) is read from config. Be concise."
+            "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10. "
+            "For promising tokens with liquidity > $10k, go straight to executor.py buy "
+            "(it runs full analyze + risk check internally). Do NOT run analyzer.py safety manually. "
+            "Position size is auto-calculated from config. Be concise. "
+            "If you execute a buy, report: token name, safety score, amount, tx link. "
+            "If nothing worth buying, reply with one short line: 'No candidates this cycle.'"
         ),
     },
     {
         "name": "position-check",
         "schedule": "every 30m",
         "skills": ["trade-executor", "trade-journal", "crypto-scanner"],
+        "deliver": "telegram",
         "prompt": (
             "Check all open positions for exit signals. Use trade-executor check-exits. "
-            "If any stop-loss is triggered, execute the sell immediately (Jupiter sell in real mode). "
-            "For take-profit signals, evaluate if we should hold or sell based on current momentum. "
-            "Also run trade-executor portfolio to show wallet balance and position summary. Report results."
+            "If any stop-loss or trailing stop is triggered, execute the sell immediately. "
+            "Also run trade-executor portfolio. "
+            "If you execute a sell, report: token, P&L%, reason, tx link. "
+            "Keep response short — 2-3 lines max if no exits triggered."
         ),
     },
     {
         "name": "trend-analysis",
         "schedule": "every 240m",
         "skills": ["crypto-scanner", "trade-journal"],
+        "deliver": "telegram",
         "prompt": (
             "Run a market trend analysis. Use crypto-scanner metas to check trending categories. "
             "Then crypto-scanner trending --limit 20 for top movers. Identify which categories "
             "are hot (AI, meme, gaming, DeFi). Compare with our open positions - are we aligned "
-            "with trends? Write a brief trend report."
+            "with trends? Write a brief trend report (5 lines max)."
         ),
     },
     {
         "name": "morning-report",
         "schedule": "0 8 * * *",
         "skills": ["trade-executor", "risk-manager", "trade-journal"],
+        "deliver": "telegram",
         "prompt": (
-            "Morning portfolio report. Run trade-executor portfolio to show all positions with "
-            "live prices. Then risk-manager status for risk dashboard. Then trade-journal stats "
-            "--days 1 for yesterday's performance. Summarize: open positions, unrealized P&L, "
-            "daily P&L, budget usage, any concerns."
+            "Morning portfolio report. Run trade-executor portfolio, risk-manager status, "
+            "trade-journal stats --days 1. Summarize in 5-8 lines: open positions, P&L, "
+            "wallet balance, risk status, plan for today."
         ),
     },
     {
         "name": "daily-summary",
         "schedule": "0 23 * * *",
         "skills": ["trade-journal", "trade-executor", "risk-manager", "crypto-scanner"],
+        "deliver": "telegram",
         "prompt": (
             "End of day trading summary with self-learning. "
-            "Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update` to analyze trades and update MEMORY.md with new patterns. "
+            "Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update` to analyze trades. "
             "Step 2: Run trade-journal stats --days 1. "
             "Step 3: Check trade-executor portfolio. "
             "Step 4: Run risk-manager status. "
-            "Step 5: Read the output from learning.py — what patterns were discovered? "
-            "Write a daily recap: trades, P&L, lessons learned, discovered patterns, what to watch tomorrow. "
-            "Step 6: If any pattern has confidence HIGH, update risk-manager config accordingly "
-            "(e.g. raise min_safety_score). "
-            "If daily loss limit was approached, flag it."
+            "Write a daily recap in 8-10 lines: trades, P&L, lessons learned, what to watch tomorrow. "
+            "If any pattern has confidence HIGH, use config-propose to suggest a config change "
+            "(do NOT edit trading-config.yaml directly — always use config-propose)."
         ),
     },
     {
         "name": "weekly-recap",
         "schedule": "0 10 * * 0",
         "skills": ["trade-journal", "trade-executor", "risk-manager", "crypto-scanner"],
+        "deliver": "telegram",
         "prompt": (
-            "Weekly trading recap with deep learning review. "
-            "Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update --days 7` to refresh MEMORY.md. "
-            "Step 2: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns` to see all discovered patterns. "
-            "Step 3: Run trade-journal stats --days 7. Export trades: trade-journal export. "
-            "Step 4: Analyze: total P&L, win rate, best/worst trades, avg hold time, which signals worked. "
-            "Step 5: Review trade execution quality (slippage, timing). "
-            "Step 6: Based on patterns, suggest specific changes to risk-manager config "
-            "(min_safety_score, stop_loss_pct, take_profit_min_pct). "
-            "Step 7: Update MEMORY.md 'Known Patterns' section with new bullish/bearish signals. "
-            "Step 8: If win rate <40%, tighten filters. If >60%, consider loosening slightly."
+            "Weekly trading recap. "
+            "Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update --days 7`. "
+            "Step 2: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns`. "
+            "Step 3: Run trade-journal stats --days 7. "
+            "Analyze: total P&L, win rate, best/worst trades, which signals worked. "
+            "Based on patterns, use config-propose to suggest specific config changes "
+            "(do NOT edit trading-config.yaml directly). "
+            "Keep report to 10-15 lines."
         ),
     },
 ]
@@ -213,7 +216,7 @@ def make_job(definition: dict) -> dict:
         "last_status": None,
         "last_error": None,
         "last_delivery_error": None,
-        "deliver": "local",
+        "deliver": definition.get("deliver", "local"),
         "origin": None,
     }
 

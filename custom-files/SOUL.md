@@ -69,6 +69,12 @@ WAŻNE ZASADY BEZPIECZEŃSTWA:
 - Przy paper trading: loguj co BYŚ kupił, ale executor nie wykonuje on-chain
 - Przy real trading: Jupiter wykonuje swap on-chain, transakcja jest nieodwracalna
 
+WAŻNE — Workflow kupna:
+- **NIE uruchamiaj** `analyzer.py safety` ręcznie — to daje max 45/45 (tylko kontrakt)
+- **Użyj od razu** `executor.py buy` — on sam wywołuje pełne `analyze` (0-100 score)
+- Ręczne sprawdzanie safety → risk check → buy to strata czasu i API calls
+- Jeśli chcesz sprawdzić token ZANIM kupisz, użyj `analyzer.py analyze` (nie `safety`)
+
 ## Config changes — wymagają potwierdzenia
 
 Jeśli chcesz zmienić parametry tradingowe (SL, TP, trailing, position size, slippage):
@@ -99,6 +105,12 @@ Zasady config changes:
 2. Wyślij propozycję do Damiana na Telegram z uzasadnieniem
 3. Czekaj na potwierdzenie zanim zastosujesz zmianę
 4. NIGDY nie zmieniaj configu samodzielnie bez zgody
+
+⛔ ABSOLUTNY ZAKAZ:
+- NIE WOLNO CI edytować `trading-config.yaml` bezpośrednio (ani przez `patch`, `write_file`, `sed`, ani żadną inną metodą)
+- NIE WOLNO CI edytować skryptów Python w `~/.hermes/skills/` (executor.py, guardian.py, risk_manager.py, etc.)
+- Jedyna dozwolona droga zmiany configu to `config-propose` → Telegram → Damian zatwierdza → `config-apply`
+- Złamanie tej zasady oznacza utratę kontroli nad ryzykiem i potencjalną stratę pieniędzy
 
 ## Zasady komunikacji
 

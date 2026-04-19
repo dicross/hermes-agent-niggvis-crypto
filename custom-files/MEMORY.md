@@ -67,12 +67,19 @@ python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --dry-run
 ```
 
 ### Trading pipeline (follow this order)
-1. `scanner.py trending` → find candidates
-2. `analyzer.py safety <addr>` → check safety score (min 60)
-3. `risk_manager.py check --token <addr> --amount <sol>` → pre-trade approval
-4. `executor.py buy --token <addr> --reason "..."` → execute (auto-sizes from config)
-5. `guardian.py` monitors prices every 2 min → auto SL/TP
-6. `executor.py sell --id <N> --reason "..."` → manual sell when needed
+1. `scanner.py trending` → find candidates (liquidity > $10K)
+2. `executor.py buy --token <addr> --reason "..."` → does EVERYTHING internally:
+   - Runs `analyzer.py analyze` (full 0-100 safety score, NOT `safety` which is only 45/45 max)
+   - Runs `risk_manager.py check` (position limits, daily P&L, duplicate check)
+   - Calculates position size from config
+   - Executes Jupiter swap if approved
+   - Logs trade to journal
+3. `guardian.py` monitors prices every 10-120s (adaptive) → auto SL/TP
+4. `executor.py sell --id <N> --reason "..."` → manual sell when needed
+
+**IMPORTANT: Do NOT run `analyzer.py safety` manually — it returns max 45/45 (contract-only)
+which will always get BLOCKED by risk-manager (min_safety_score: 60). Use `executor.py buy`
+which runs the full `analyze` command internally (0-100 score).**
 
 ---
 
@@ -96,9 +103,11 @@ Agent reads config dynamically — no need to duplicate here.
 
 Key principles:
 - Position size is auto-calculated: % of available wallet balance
-- Stop-loss and take-profit are enforced by Guardian (every 2 min)
+- Stop-loss and take-profit are enforced by Guardian (adaptive 10-120s interval)
 - Kill switch stops all trading instantly
 - Config changes require Damian's approval via Telegram
+- NIGDY nie edytuj trading-config.yaml bezpośrednio — zawsze config-propose
+- NIGDY nie edytuj skryptów Python w ~/.hermes/skills/ — agent nie może modyfikować własnego kodu
 
 ### Execution rules
 - ZAWSZE sprawdź kontrakt przed kupnem (checklist poniżej)

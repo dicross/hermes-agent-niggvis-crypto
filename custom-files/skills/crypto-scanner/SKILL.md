@@ -118,6 +118,26 @@ python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py metas
 - **Age 4-24h**: established trend, verify before entry
 - **Boosts**: paid promotion, not organic — verify independently
 
+## Buy Workflow (IMPORTANT — follow exactly)
+
+After scanning trending tokens, DO NOT run `analyzer.py safety` manually.
+It only returns max 45/45 (contract-only) which will ALWAYS get blocked by risk-manager (min 60).
+
+**Correct workflow:**
+1. `scanner.py trending --limit 10` → pick candidates with liquidity > $10K
+2. For promising tokens, go straight to: `executor.py buy --token <addr> --reason "..."`
+3. Executor internally runs full `analyzer.py analyze` (0-100 score) and `risk_manager.py check`
+4. If score < 60 or risk check fails → executor blocks the trade automatically
+
+**If you want to preview before buying:**
+- Use `analyzer.py analyze <addr>` (NOT `safety`) to see the full 0-100 score
+- Then decide whether to call `executor.py buy`
+
+**DO NOT:**
+- Run `analyzer.py safety` — it's contract-only (max 45), useless for buy decisions
+- Run `risk_manager.py check` manually before `executor.py buy` — executor does this internally
+- Pass `--amount` to bypass auto-sizing unless wallet balance is genuinely too low
+
 ## Contract Check Results (--check-contract)
 
 - ✅ `mint: revoked` — safe, no new tokens can be minted

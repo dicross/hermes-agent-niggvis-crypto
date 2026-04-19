@@ -17,10 +17,12 @@ Config: ~/.hermes/memories/trading-config.yaml
 """
 
 import argparse
+import fcntl
 import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -33,6 +35,7 @@ JOURNAL_PATH = os.path.expanduser("~/.hermes/memories/trade-journal.json")
 TRADING_CONFIG_PATH = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
 SKILLS_DIR = os.path.expanduser("~/.hermes/skills")
 DEXSCREENER_BASE = "https://api.dexscreener.com"
+BUY_LOCK_PATH = os.path.expanduser("~/.hermes/cron/.executor-buy.lock")
 
 # ---------------------------------------------------------------------------
 # Config (minimal YAML parser — same as in jupiter_swap.py)
@@ -221,7 +224,24 @@ def cmd_buy(args):
     """Execute a buy."""
     tcfg = load_trading_config()
     mode = _cfg(tcfg, "mode", default="paper")
+    # Acquire exclusive lock to prevent duplicate buys from parallel sessions
+    os.makedirs(os.path.dirname(BUY_LOCK_PATH), exist_ok=True)
+    lock_fd = open(BUY_LOCK_PATH, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("\u26a0\ufe0f Another buy is already in progress. Skipping to avoid duplicate.")
+        sys.exit(1)
 
+    try:
+        _do_buy(args, tcfg, mode)
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
+
+
+def _do_buy(args, tcfg, mode):
+    """Internal buy logic (called under lock)."""
     print(f"🔄 Processing BUY ({mode.upper()} mode)...\n")
 
     # 1. Position sizing
@@ -236,6 +256,13 @@ def cmd_buy(args):
         balance = _get_wallet_balance()
         pct = _cfg(tcfg, "position_sizing", "position_pct", default=5.0)
         print(f"  Auto-sized: {amount:.4f} SOL ({pct}% of {balance:.4f} wallet)")
+
+    # 1b. Reserve guard — refuse if wallet balance is too low
+    min_reserve = _cfg(tcfg, "position_sizing", "min_wallet_balance", default=0.01)
+    balance_now = _get_wallet_balance()
+    if balance_now - amount < min_reserve:
+        print(f"❌ Would drop wallet below reserve ({min_reserve} SOL). Balance: {balance_now:.6f}, trade: {amount:.4f}")
+        sys.exit(1)
 
     # 2. Get current price + token name
     token_info = _get_token_info(args.token)
