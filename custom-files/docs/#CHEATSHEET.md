@@ -144,7 +144,7 @@ python3 ~/.hermes/skills/solana/scripts/solana_client.py whales --min-sol 500
 python3 ~/.hermes/skills/solana/scripts/solana_client.py stats
 ```
 
-ZnanJupiter Swap — On-chain Execution
+### Jupiter Swap — On-chain Execution
 
 ```bash
 # Wallet info (adres, balance, auto-sizing)
@@ -169,17 +169,6 @@ python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py quote --input-mi
 > Agent zarządza keypairem w ~/.hermes/secrets/trading-wallet.json
 > Jupiter API routuje przez Metis, JupiterZ, Dflow, OKX — best price.
 > Config: trading-config.yaml (slippage, priority fee)
-
-### Darmowe API do skanowania
-
-| Źródło | Endpoint | Co daje |
-|--------|----------|---------|
-| DEXScreener | `api.dexscreener.com` | Nowe pary, volume, liquidity, price |
-| Jupiter | `api.jup.ag/swap/v2` | On-chain swaps, best price routing |
-| Birdeye | `public-api.birdeye.so` | Token analytics, trending, OHLCV |
-| CoinGecko | `api.coingecko.com/api/v3` | Ceny, trending, market cap |
-| pump.fun | `frontend-api.pump.fun` | Nowe memecoiny na Solanie |
-| Solana RPC | `api.mainnet-beta.solana.com` | On-chain data
 
 ### Darmowe API do skanowania
 
@@ -346,29 +335,77 @@ python3 custom-files/setup-cron.py
 uv pip install croniter
 ```
 
-### Position Guardian (real-time SL/TP)
+### Position Guardian (real-time SL/TP/BE)
 
-Guardian to lekki monitor cen (BEZ LLM). Sprawdza co 2 min czy otwarty trade
-nie przekroczył stop-loss lub take-profit. Jeśli tak — zamyka trade natychmiast.
+Guardian to lekki monitor cen (BEZ LLM). Sprawdza pozycje w pętli z adaptacyjnym
+interwałem (idle/active/hot). Funkcje:
+- **Stop-loss** — zamyka gdy P&L ≤ SL%
+- **Take-profit** — zamyka powyżej TP% (z trailing stop opcjonalnie)
+- **Break-even SL** — przesuwa SL na 0% gdy pozycja osiągnie +50% (konfigurowalny)
+- **Trailing stop** — po osiągnięciu TP%, śledzi peak i zamyka na pullbacku
+- **Wallet sync** — co 10 cykli sprawdza on-chain balanse, zamyka orphany
+- **Telegram** — powiadamia o każdym sell (SL/TP/trailing/BE/kill)
+- **Kill switch** — awaryjne zamknięcie wszystkiego
 
 ```bash
-# Start (w tle, screen/tmux)
+# Start (w tle, screen/tmux) — adaptacyjny interwał
 python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
  
-# Co 3 min zamiast 2
-python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --interval 180
+# Z większą historią TUI
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5
  
 # Dry run (sprawdza ale nie zamyka)
 python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --dry-run
  
-# Jednorazowy check
+# Jednorazowy check (+ wallet sync)
 python3 ~/.hermes/skills/trade-executor/scripts/guardian.py
+ 
+# Bez TUI (np. do logowania)
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --no-tui
  
 # Guardian log
 tail -f ~/.hermes/cron/guardian.log
 ```
 
+Adaptacyjny interwał (z trading-config.yaml → guardian):
+- **idle** (120s): brak otwartych pozycji
+- **active** (20s): pozycje w normalnym zakresie
+- **hot** (10s): pozycja blisko SL lub TP (w strefie hot_zone_pct)
+
 Guardian blokuje drugie uruchomienie (file lock) — bezpieczne dla cron.
+
+### Notyfikacje Telegram — konfiguracja
+
+Guardian wysyła powiadomienia bezpośrednio przez Telegram Bot API.
+Każdy typ eventu można włączyć/wyłączyć osobno w `trading-config.yaml`:
+
+```yaml
+notifications:
+  on_stop_loss: true              # 🚨 Stop loss triggered
+  on_take_profit: true            # 🎯 Take profit hit
+  on_trailing_stop: true          # 📉 Trailing stop triggered
+  on_breakeven_activated: true    # 🔒 SL przesunięty na break-even
+  on_kill_switch: true            # 🔴 Kill switch — emergency close
+  on_wallet_sync: true            # 🔄 Orphan position closed
+  on_buy: true                    # ✅ New trade executed
+  require_config_approval: true   # Agent musi prosić o OK przed zmianą config
+```
+
+Ustaw `false` aby wyciszyć konkretny typ. Token bota i chat_id czytane z `~/.hermes/gateway.json`.
+
+### Session Analyzer
+
+Skrypt do analizy sesji Hermes — wyciąga trades, bloki, błędy, zmiany config.
+
+```bash
+# Analiza wszystkich sesji w katalogu
+python3 custom-files/analyze-sessions.py ~/.hermes/sessions/
+ 
+# Analiza skopiowanych sesji (macOS)
+python3 custom-files/analyze-sessions.py custom-files/.hermes-copied/sessions/
+```
+
+Output nadaje się do wklejenia do AI assistanta jako kontekst.
 
 ### Self-Learning Engine
 
@@ -429,15 +466,20 @@ python3 custom-files/scripts/cron_viewer.py --tail 50
 ❯ Wstrzymaj trading            # Naturalny język — agent zatrzyma wszystkie cron jobs
 ```
 
-### Limity (w MEMORY.md + config)
+### Limity (w trading-config.yaml)
 
 | Limit | Wartość | Opis |
 |-------|---------|------|
-| Max trade size | $5-10 | Na start, zwiększ po udanym paper trading |
-| Daily loss limit | -20% | Jeśli portfel -20% dziennie → stop |
-| Max open positions | 5 | Nie więcej niż 5 tokenów naraz |
-| Min liquidity | $10K | Nie kupuj tokenów z liquidity < $10K |
-| Rugpull check | ZAWSZE | Sprawdź kontrakt przed każdym buy |
+| Max trade size | 0.5 SOL | `position_sizing.max_trade_sol` |
+| Position sizing | 5% | `position_sizing.position_pct` — % walleta na trade |
+| Max open positions | 5 | `position_sizing.max_positions` |
+| Stop-loss | -30% | `risk.stop_loss_pct` — per trade, nie portfolio |
+| Take-profit | +100% | `risk.take_profit_pct` — min % zysku do zamknięcia |
+| Trailing stop | 15% | `risk.trailing_stop_pct` — pullback od peaku |
+| Break-even trigger | +50% | `risk.breakeven_trigger_pct` — SL→0% po osiągnięciu |
+| Daily loss limit | -20% | `risk.daily_loss_limit_pct` — suma P&L zamkniętych |
+| Min safety score | 60 | `filters.min_safety_score` |
+| Min liquidity | $10K | `filters.min_liquidity_usd` |
 
 ### Rugpull Red Flags (agent sprawdza automatycznie)
 
@@ -472,10 +514,16 @@ git pull origin main
 # Jeśli pyproject.toml się zmienił:
 uv pip install -e ".[all]"
  
-# Jeśli SOUL.md lub MEMORY.md się zmienił:
-cp custom-files/SOUL.md ~/.hermes/SOUL.md
-cp custom-files/MEMORY.md ~/.hermes/memories w trading-config.yaml lub `export SOLANA_RPC_URL=...` |
-| Jupiter swap failed | Sprawdź balance: `jupiter_swap.py wallet`, sprawdź slippage w trading-config.yaml
+# Zainstaluj/aktualizuj skills i trading-config:
+bash custom-files/install-skills.sh --skills
+ 
+# Jeśli chcesz też nadpisać SOUL.md/MEMORY.md (reset agenta):
+bash custom-files/install-skills.sh --full
+ 
+# Restart guardiana (tmux):
+# Ctrl+C w oknie guardiana, potem:
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5
+```
 
 Merge z upstream (tylko WSL): Zob. `custom-files/docs/#GIT-WORKFLOW.md`.
 

@@ -234,14 +234,24 @@ def _load_telegram_config():
         if isinstance(hc, dict):
             _telegram_chat_id = str(hc.get("chat_id", ""))
 
-    # Also check trading-config notifications section
+
+def _is_notification_enabled(event_key: str) -> bool:
+    """Check if a specific notification event is enabled in trading-config.yaml.
+
+    event_key: e.g. 'on_stop_loss', 'on_trailing_stop', 'on_breakeven_activated'
+    """
     tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
-    if not _cfg(tcfg, "notifications", "on_exit", default=True):
-        _telegram_bot_token = None  # Notifications disabled
+    return bool(_cfg(tcfg, "notifications", event_key, default=True))
 
 
-def notify_telegram(message: str):
-    """Send a notification to the home Telegram chat. Non-blocking, best-effort."""
+def notify_telegram(message: str, event: str = None):
+    """Send a notification to the home Telegram chat. Non-blocking, best-effort.
+
+    event: optional notification key (e.g. 'on_stop_loss'). If set and disabled
+           in trading-config.yaml, the message is silently dropped.
+    """
+    if event and not _is_notification_enabled(event):
+        return
     _load_telegram_config()
     if not _telegram_bot_token or not _telegram_chat_id:
         return
@@ -379,7 +389,8 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
             notify_telegram(
                 f"🔄 *Wallet sync* — closed #{t['id']} {t.get('token', '?')}\n"
                 f"Token not found on-chain (manual close?)\n"
-                f"P&L: {pnl_pct:+.1f}%"
+                f"P&L: {pnl_pct:+.1f}%",
+                event="on_wallet_sync",
             )
 
     if closed_ids and not dry_run:
@@ -570,7 +581,8 @@ def check_positions(dry_run: bool = False) -> list:
                     notify_telegram(
                         f"🔒 *Break-even SL activated*\n"
                         f"#{t['id']} {t.get('token', '?')}: hit {pnl_pct:+.1f}% (trigger: {be_trigger}%)\n"
-                        f"SL moved from {sl_pct}% → 0% (entry price)"
+                        f"SL moved from {sl_pct}% → 0% (entry price)",
+                        event="on_breakeven_activated",
                     )
 
         # Stop-loss check (using effective SL — may be 0% if BE activated)
@@ -594,7 +606,8 @@ def check_positions(dry_run: bool = False) -> list:
                 notify_telegram(
                     f"🚨 *STOP LOSS* — #{t['id']} {t.get('token', '?')}\n"
                     f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
-                    f"Entry: ${entry} → Exit: ${price}"
+                    f"Entry: ${entry} → Exit: ${price}",
+                    event="on_stop_loss",
                 )
 
             actions.append({"type": "STOP_LOSS", "id": t["id"], "pnl": pnl_pct})
@@ -629,7 +642,8 @@ def check_positions(dry_run: bool = False) -> list:
                             f"📉 *TRAILING STOP* — #{t['id']} {t.get('token', '?')}\n"
                             f"P&L: {pnl_pct:+.1f}% (peak: {peak:+.1f}%)\n"
                             f"Entry: ${entry} → Exit: ${price}\n"
-                            f"Profit: {t['pnl_sol']:+.6f} SOL"
+                            f"Profit: {t['pnl_sol']:+.6f} SOL",
+                            event="on_trailing_stop",
                         )
                     actions.append({"type": "TRAILING_STOP", "id": t["id"], "pnl": pnl_pct, "peak": peak})
                 else:
@@ -652,7 +666,8 @@ def check_positions(dry_run: bool = False) -> list:
                     notify_telegram(
                         f"🎯 *TAKE PROFIT* — #{t['id']} {t.get('token', '?')}\n"
                         f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
-                        f"Entry: ${entry} → Exit: ${price}"
+                        f"Entry: ${entry} → Exit: ${price}",
+                        event="on_take_profit",
                     )
                 actions.append({"type": "TAKE_PROFIT", "id": t["id"], "pnl": pnl_pct})
 
@@ -670,7 +685,8 @@ def check_positions(dry_run: bool = False) -> list:
                 t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
                 notify_telegram(
                     f"🔴 *KILL SWITCH* — #{t['id']} {t.get('token', '?')}\n"
-                    f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)"
+                    f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)",
+                    event="on_kill_switch",
                 )
             actions.append({"type": "KILL", "id": t["id"], "pnl": pnl_pct})
 

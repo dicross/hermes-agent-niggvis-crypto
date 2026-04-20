@@ -115,17 +115,21 @@ guardian:
 # =============================================================================
 # Notifications (Telegram)
 # =============================================================================
+# Guardian reads these to decide what to send to Telegram.
+# Set false to mute a specific notification type.
 notifications:
-  # Send alerts on trade execution
-  on_trade: true
-  # Send alerts on stop-loss / take-profit triggers
-  on_exit: true
-  # Send alerts when guardian detects large price moves
-  on_price_alert: true
-  # Require confirmation before config changes by agent
+  # --- Guardian sell events ---
+  on_stop_loss: true
+  on_take_profit: true
+  on_trailing_stop: true
+  on_breakeven_activated: true
+  on_kill_switch: true
+  # --- Wallet sync ---
+  on_wallet_sync: true
+  # --- Agent actions (executor.py) ---
+  on_buy: true
+  # --- Config changes ---
   require_config_approval: true
-  # Alert threshold: notify if position moves more than X%
-  price_move_alert_pct: 100
 
 # =============================================================================
 # Config Change History (auto-updated by agent)

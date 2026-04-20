@@ -217,7 +217,25 @@ bash custom-files/install-skills.sh
 
 Skrypt kopiuje 5 skilli + trading-config.yaml do `~/.hermes/`.
 
-### 4.11 Weryfikacja instalacji
+### 4.11 Konfiguracja notyfikacji Telegram (guardian)
+
+Guardian wysyła powiadomienia o SL/TP/trailing/BE bezpośrednio przez Telegram Bot API.
+Token bota i chat_id czyta z `~/.hermes/gateway.json` (konfigurowany przez `hermes gateway setup`).
+
+Ustaw w `~/.hermes/memories/trading-config.yaml` które notyfikacje chcesz:
+```yaml
+notifications:
+  on_stop_loss: true              # 🚨 Stop loss
+  on_take_profit: true            # 🎯 Take profit
+  on_trailing_stop: true          # 📉 Trailing stop
+  on_breakeven_activated: true    # 🔒 Break-even SL activated
+  on_kill_switch: true            # 🔴 Kill switch
+  on_wallet_sync: true            # 🔄 Orphan position closed
+  on_buy: true                    # ✅ New buy executed
+  require_config_approval: true   # Agent prosi o OK przed config change
+```
+
+### 4.12 Weryfikacja instalacji
 
 ```bash
 hermes doctor        # Pełna diagnostyka
@@ -524,7 +542,8 @@ hermes model                                   # Interaktywny wybór
 │   │   ├── #CHEATSHEET.md            ← codzienny cheatsheet
 │   │   └── #GIT-WORKFLOW.md          ← git workflow
 │   ├── config.example.yaml            ← szablon config
-│   ├── trading-config.yaml            ← trading config (SL/TP/sizing/Jupiter)
+│   ├── trading-config.yaml            ← trading config (SL/TP/sizing/Jupiter/notyfikacje)
+│   ├── analyze-sessions.py            ← analiza sesji (trades, bloki, błędy)
 │   ├── .env.example                   ← szablon kluczy API
 │   ├── SOUL.md                        ← persona Niggvis crypto
 │   └── MEMORY.md                      ← profesjonalna wiedza crypto
