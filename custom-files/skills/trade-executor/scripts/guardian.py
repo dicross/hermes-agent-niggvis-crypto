@@ -407,8 +407,11 @@ def notify_telegram(message: str, event: str = None):
 # Wallet sync — reconcile journal with on-chain token balances
 # ---------------------------------------------------------------------------
 
-def _get_token_accounts(wallet_pubkey: str, rpc_url: str) -> dict:
-    """Get all SPL token accounts for a wallet. Returns {mint_address: amount_raw}."""
+def _get_token_accounts(wallet_pubkey: str, rpc_url: str) -> dict | None:
+    """Get all SPL token accounts for a wallet.
+
+    Returns {mint_address: amount_raw} on success, None on RPC error.
+    """
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -426,8 +429,14 @@ def _get_token_accounts(wallet_pubkey: str, rpc_url: str) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
-    except Exception:
-        return {}
+    except Exception as e:
+        log(f"  ⚠️ RPC error in getTokenAccountsByOwner: {e}")
+        return None  # None = RPC failed (vs {} = success but no tokens)
+
+    # Check for RPC-level error response
+    if "error" in data:
+        log(f"  ⚠️ RPC returned error: {data['error']}")
+        return None
 
     result = {}
     accounts = data.get("result", {}).get("value", [])
@@ -514,18 +523,38 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
         return []
 
     token_balances = _get_token_accounts(wallet_pubkey, rpc_url)
+
+    # SAFETY: if RPC call failed, skip sync entirely (don't close real positions)
+    if token_balances is None:
+        log("  ⚠️ RPC call failed — skipping wallet sync (not closing anything)")
+        return []
+
     closed_ids = []
+    would_close = []
 
     for t in open_trades:
         addr = t.get("address", "")
         if not addr:
             continue
 
-        # Check if we still hold this token on-chain
         on_chain_balance = token_balances.get(addr, 0)
         if on_chain_balance > 0:
             continue  # Still holding — journal is correct
 
+        would_close.append(t)
+
+    # SAFETY: if ALL open positions would be closed, likely RPC returned
+    # incomplete data (rate limit, partial response). Skip and warn.
+    if len(would_close) == len(open_trades) and len(open_trades) > 1:
+        log(
+            f"  ⚠️ Wallet sync would close ALL {len(open_trades)} positions — "
+            f"likely RPC error/rate limit. Skipping.",
+            alert=True,
+        )
+        return []
+
+    for t in would_close:
+        addr = t.get("address", "")
         # Token not on-chain but journal says open → manual close detected
         log(f"  🔄 #{t['id']} {t.get('token', '?')}: no on-chain balance — closing journal entry", alert=True)
         if not dry_run:
