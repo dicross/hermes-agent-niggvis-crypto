@@ -55,6 +55,9 @@ risk:
   # Trailing stop: after hitting TP threshold, trail by this %
   # Set to 0 to disable trailing (instant sell at TP)
   trailing_stop_pct: 15
+  # Break-even trigger: move SL to 0% (entry price) when profit reaches this %
+  # Set to 0 to disable. Example: 50 = when position hits +50%, SL moves to entry.
+  breakeven_trigger_pct: 50
   # Daily loss limit: stop trading if portfolio drops this % in a day
   daily_loss_limit_pct: -20
   # Weekly loss limit: stop trading entirely

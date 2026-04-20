@@ -46,9 +46,12 @@ import fcntl
 
 JOURNAL_PATH = os.path.expanduser("~/.hermes/memories/trade-journal.json")
 TRADING_CONFIG_PATH = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
+GATEWAY_CONFIG_PATH = os.path.expanduser("~/.hermes/gateway.json")
+HERMES_CONFIG_PATH = os.path.expanduser("~/.hermes/config.yaml")
 GUARDIAN_LOCK = os.path.expanduser("~/.hermes/cron/.guardian.lock")
 GUARDIAN_LOG = os.path.expanduser("~/.hermes/cron/guardian.log")
 DEXSCREENER_BASE = "https://api.dexscreener.com"
+SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com"
 SKILLS_DIR = os.path.expanduser("~/.hermes/skills")
 
 # ---------------------------------------------------------------------------
@@ -181,6 +184,208 @@ def _http_get(url: str) -> dict | list | None:
             return json.loads(resp.read().decode())
     except Exception:
         return None
+
+
+def _http_post(url: str, data: dict) -> dict | None:
+    """Send JSON POST request. Returns parsed response or None."""
+    body = json.dumps(data).encode()
+    req = urllib.request.Request(url, data=body, headers={
+        "Content-Type": "application/json",
+        "User-Agent": "hermes-guardian/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Telegram notification
+# ---------------------------------------------------------------------------
+
+_telegram_bot_token: str | None = None
+_telegram_chat_id: str | None = None
+_telegram_loaded: bool = False
+
+
+def _load_telegram_config():
+    """Load Telegram bot token and home chat_id from gateway config."""
+    global _telegram_bot_token, _telegram_chat_id, _telegram_loaded
+    if _telegram_loaded:
+        return
+    _telegram_loaded = True
+
+    # Try gateway.json first (legacy), then config.yaml
+    gw = {}
+    if os.path.exists(GATEWAY_CONFIG_PATH):
+        try:
+            with open(GATEWAY_CONFIG_PATH) as f:
+                gw = json.load(f) or {}
+        except Exception:
+            pass
+
+    # Extract from platforms → telegram
+    platforms = gw.get("platforms", {})
+    tg = platforms.get("telegram", {})
+    if isinstance(tg, dict):
+        _telegram_bot_token = tg.get("token")
+        hc = tg.get("home_channel", {})
+        if isinstance(hc, dict):
+            _telegram_chat_id = str(hc.get("chat_id", ""))
+
+    # Also check trading-config notifications section
+    tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+    if not _cfg(tcfg, "notifications", "on_exit", default=True):
+        _telegram_bot_token = None  # Notifications disabled
+
+
+def notify_telegram(message: str):
+    """Send a notification to the home Telegram chat. Non-blocking, best-effort."""
+    _load_telegram_config()
+    if not _telegram_bot_token or not _telegram_chat_id:
+        return
+    url = f"https://api.telegram.org/bot{_telegram_bot_token}/sendMessage"
+    _http_post(url, {
+        "chat_id": _telegram_chat_id,
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Wallet sync — reconcile journal with on-chain token balances
+# ---------------------------------------------------------------------------
+
+def _get_token_accounts(wallet_pubkey: str, rpc_url: str) -> dict:
+    """Get all SPL token accounts for a wallet. Returns {mint_address: amount_raw}."""
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getTokenAccountsByOwner",
+        "params": [
+            wallet_pubkey,
+            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
+            {"encoding": "jsonParsed"},
+        ],
+    }
+    body = json.dumps(payload).encode()
+    req = urllib.request.Request(rpc_url, data=body, headers={
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return {}
+
+    result = {}
+    accounts = data.get("result", {}).get("value", [])
+    for acc in accounts:
+        info = acc.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+        mint = info.get("mint", "")
+        amount = info.get("tokenAmount", {}).get("uiAmount", 0) or 0
+        if mint and amount > 0:
+            result[mint] = amount
+    return result
+
+
+def _get_wallet_pubkey(tcfg: dict) -> str | None:
+    """Read wallet public key from keypair file."""
+    kp_path = _cfg(tcfg, "wallet", "keypair_path", default="")
+    if not kp_path:
+        return None
+    kp_path = os.path.expanduser(kp_path)
+    if not os.path.exists(kp_path):
+        return None
+    try:
+        with open(kp_path) as f:
+            kp_data = json.load(f)
+        if isinstance(kp_data, list) and len(kp_data) >= 64:
+            # JSON array keypair — first 32 bytes are private, derive public
+            # Use solders if available, fallback to base58
+            try:
+                from solders.keypair import Keypair as SoldersKeypair
+                kp = SoldersKeypair.from_bytes(bytes(kp_data[:64]))
+                return str(kp.pubkey())
+            except ImportError:
+                # Without solders, try nacl
+                try:
+                    import nacl.signing
+                    signing_key = nacl.signing.SigningKey(bytes(kp_data[:32]))
+                    import base58
+                    return base58.b58encode(bytes(signing_key.verify_key)).decode()
+                except ImportError:
+                    return None
+        elif isinstance(kp_data, str):
+            return kp_data  # Assume it's already a pubkey string
+    except Exception:
+        pass
+    return None
+
+
+def sync_journal_with_wallet(dry_run: bool = False) -> list:
+    """Check on-chain balances for open positions and close orphans.
+
+    Returns list of trade IDs that were closed (no tokens on-chain).
+    """
+    journal = load_json(JOURNAL_PATH)
+    tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+
+    trades = journal.get("trades", [])
+    open_trades = [t for t in trades if t.get("status") == "open"]
+    if not open_trades:
+        return []
+
+    rpc_url = _cfg(tcfg, "wallet", "rpc_url", default=SOLANA_MAINNET_RPC)
+    wallet_pubkey = _get_wallet_pubkey(tcfg)
+    if not wallet_pubkey:
+        log("  ⚠️ Cannot read wallet pubkey — skipping wallet sync")
+        return []
+
+    token_balances = _get_token_accounts(wallet_pubkey, rpc_url)
+    closed_ids = []
+
+    for t in open_trades:
+        addr = t.get("address", "")
+        if not addr:
+            continue
+
+        # Check if we still hold this token on-chain
+        on_chain_balance = token_balances.get(addr, 0)
+        if on_chain_balance > 0:
+            continue  # Still holding — journal is correct
+
+        # Token not on-chain but journal says open → manual close detected
+        log(f"  🔄 #{t['id']} {t.get('token', '?')}: no on-chain balance — closing journal entry")
+        if not dry_run:
+            # Try to get current price for P&L calculation
+            price = get_price(addr)
+            entry = float(t.get("entry_price", 0))
+            if price and entry > 0:
+                pnl_pct = ((price - entry) / entry) * 100
+            else:
+                pnl_pct = 0.0  # Unknown — position was closed externally
+
+            t["status"] = "closed"
+            t["exit_price"] = price or 0
+            t["exit_time"] = datetime.now(timezone.utc).isoformat()
+            t["exit_reason"] = "Wallet sync — token not found on-chain (manual close?)"
+            t["pnl_pct"] = round(pnl_pct, 2)
+            t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
+            closed_ids.append(t["id"])
+
+            notify_telegram(
+                f"🔄 *Wallet sync* — closed #{t['id']} {t.get('token', '?')}\n"
+                f"Token not found on-chain (manual close?)\n"
+                f"P&L: {pnl_pct:+.1f}%"
+            )
+
+    if closed_ids and not dry_run:
+        save_json(JOURNAL_PATH, journal)
+
+    return closed_ids
 
 
 def get_price(address: str) -> float | None:
@@ -326,6 +531,8 @@ def check_positions(dry_run: bool = False) -> list:
     trail_pct = float(_cfg(tcfg, "risk", "trailing_stop_pct", default=0))
     kill = _cfg(tcfg, "risk", "kill_switch", default=False)
     mode = _cfg(tcfg, "mode", default="paper")
+    # Break-even: move SL to 0% when position reaches this profit %
+    be_trigger = float(_cfg(tcfg, "risk", "breakeven_trigger_pct", default=0))
 
     actions = []
     journal_dirty = False
@@ -349,9 +556,27 @@ def check_positions(dry_run: bool = False) -> list:
         # Cache for adaptive interval (no extra API calls)
         _last_pnl_cache[t["id"]] = pnl_pct
 
-        # Stop-loss check
-        if pnl_pct <= sl_pct:
-            action = f"STOP_LOSS #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit {sl_pct}%)"
+        # Break-even SL: if position ever exceeded be_trigger, effective SL = 0%
+        effective_sl = sl_pct
+        if be_trigger > 0:
+            peak = float(t.get("peak_pnl_pct", 0))
+            if peak >= be_trigger or pnl_pct >= be_trigger:
+                effective_sl = 0
+                # Mark that BE was activated (for logging)
+                if not t.get("breakeven_active"):
+                    t["breakeven_active"] = True
+                    journal_dirty = True
+                    log(f"  🔒 #{t['id']} {t.get('token', '?')}: break-even SL activated (hit {be_trigger}%+)")
+                    notify_telegram(
+                        f"🔒 *Break-even SL activated*\n"
+                        f"#{t['id']} {t.get('token', '?')}: hit {pnl_pct:+.1f}% (trigger: {be_trigger}%)\n"
+                        f"SL moved from {sl_pct}% → 0% (entry price)"
+                    )
+
+        # Stop-loss check (using effective SL — may be 0% if BE activated)
+        if pnl_pct <= effective_sl:
+            sl_label = f"BE 0%" if effective_sl == 0 else f"{effective_sl}%"
+            action = f"STOP_LOSS #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit {sl_label})"
             log(f"  🚨 {action}")
 
             if not dry_run:
@@ -366,6 +591,11 @@ def check_positions(dry_run: bool = False) -> list:
                 t["pnl_pct"] = round(pnl_pct, 2)
                 t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
                 log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)")
+                notify_telegram(
+                    f"🚨 *STOP LOSS* — #{t['id']} {t.get('token', '?')}\n"
+                    f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
+                    f"Entry: ${entry} → Exit: ${price}"
+                )
 
             actions.append({"type": "STOP_LOSS", "id": t["id"], "pnl": pnl_pct})
 
@@ -395,6 +625,12 @@ def check_positions(dry_run: bool = False) -> list:
                         t["pnl_pct"] = round(pnl_pct, 2)
                         t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
                         log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% (peak was {peak:+.1f}%)")
+                        notify_telegram(
+                            f"📉 *TRAILING STOP* — #{t['id']} {t.get('token', '?')}\n"
+                            f"P&L: {pnl_pct:+.1f}% (peak: {peak:+.1f}%)\n"
+                            f"Entry: ${entry} → Exit: ${price}\n"
+                            f"Profit: {t['pnl_sol']:+.6f} SOL"
+                        )
                     actions.append({"type": "TRAILING_STOP", "id": t["id"], "pnl": pnl_pct, "peak": peak})
                 else:
                     # Still riding — log status with peak
@@ -413,6 +649,11 @@ def check_positions(dry_run: bool = False) -> list:
                     t["pnl_pct"] = round(pnl_pct, 2)
                     t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
                     log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)")
+                    notify_telegram(
+                        f"🎯 *TAKE PROFIT* — #{t['id']} {t.get('token', '?')}\n"
+                        f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
+                        f"Entry: ${entry} → Exit: ${price}"
+                    )
                 actions.append({"type": "TAKE_PROFIT", "id": t["id"], "pnl": pnl_pct})
 
         # Kill switch — sell everything
@@ -427,6 +668,10 @@ def check_positions(dry_run: bool = False) -> list:
                 t["exit_reason"] = f"Kill switch ({_cfg(tcfg, 'risk', 'kill_reason', default='manual')})"
                 t["pnl_pct"] = round(pnl_pct, 2)
                 t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
+                notify_telegram(
+                    f"🔴 *KILL SWITCH* — #{t['id']} {t.get('token', '?')}\n"
+                    f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)"
+                )
             actions.append({"type": "KILL", "id": t["id"], "pnl": pnl_pct})
 
         else:
@@ -508,13 +753,27 @@ def main():
         log(f"Guardian started (adaptive interval, dry-run: {args.dry_run})")
         _render_tui()
         global _check_counter
+        _sync_counter = 0
+        SYNC_EVERY_N_CHECKS = 10  # Wallet sync every N checks (not every cycle)
         try:
             while True:
                 _flush_run()
                 try:
                     _check_counter += 1
+                    _sync_counter += 1
                     ts = _local_now().strftime("%H:%M:%S")
                     log(f"🔍 Check #{_check_counter} at {ts}")
+
+                    # Periodic wallet sync (every N checks)
+                    if _sync_counter >= SYNC_EVERY_N_CHECKS:
+                        _sync_counter = 0
+                        try:
+                            closed = sync_journal_with_wallet(dry_run=args.dry_run)
+                            if closed:
+                                log(f"  🔄 Wallet sync: closed {len(closed)} orphan(s)")
+                        except Exception as e:
+                            log(f"  ⚠️ Wallet sync error: {e}")
+
                     actions = check_positions(dry_run=args.dry_run)
                     if actions:
                         log(f"  → {len(actions)} action(s) taken")
@@ -540,6 +799,13 @@ def main():
     else:
         _tui_enabled = False  # One-shot always plain
         log("🛡️ Guardian one-shot check")
+        # Wallet sync first
+        try:
+            closed = sync_journal_with_wallet(dry_run=args.dry_run)
+            if closed:
+                log(f"  🔄 Wallet sync: closed {len(closed)} orphan(s)")
+        except Exception as e:
+            log(f"  ⚠️ Wallet sync error: {e}")
         actions = check_positions(dry_run=args.dry_run)
         if not actions:
             log("  No exit signals.")
