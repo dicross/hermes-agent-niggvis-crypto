@@ -403,7 +403,7 @@ Output w formacie Markdown — nadaje się do wklejenia do AI assistanta lub git
 python3 custom-files/analyze-sessions.py ~/.hermes/sessions/
  
 # Zapisz raport do pliku MD
-python3 custom-files/analyze-sessions.py ~/.hermes/sessions/ -o ~/session-report.md
+python3 custom-files/analyze-sessions.py ~/.hermes/sessions/ -o custom-files/.hermes-copied/sessions/session-report.md
  
 # Analiza skopiowanych sesji (macOS)
 python3 custom-files/analyze-sessions.py custom-files/.hermes-copied/sessions/

@@ -51,7 +51,7 @@ risk:
   # Stop loss: auto-sell if position drops below this %
   stop_loss_pct: -30
   # Take profit: auto-sell if position rises above this %
-  take_profit_pct: 100
+  take_profit_pct: 75
   # Trailing stop: after hitting TP threshold, trail by this %
   # Set to 0 to disable trailing (instant sell at TP)
   trailing_stop_pct: 15
@@ -119,7 +119,7 @@ guardian:
 # Set false to mute a specific notification type.
 notifications:
   # --- Guardian sell events ---
-  on_stop_loss: true
+  on_stop_loss: false
   on_take_profit: true
   on_trailing_stop: true
   on_breakeven_activated: true
