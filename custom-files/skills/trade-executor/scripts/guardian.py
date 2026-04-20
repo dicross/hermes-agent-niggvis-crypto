@@ -410,42 +410,54 @@ def notify_telegram(message: str, event: str = None):
 def _get_token_accounts(wallet_pubkey: str, rpc_url: str) -> dict | None:
     """Get all SPL token accounts for a wallet.
 
+    Queries both classic Token program AND Token-2022 program.
     Returns {mint_address: amount_raw} on success, None on RPC error.
     """
-    payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "getTokenAccountsByOwner",
-        "params": [
-            wallet_pubkey,
-            {"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"},
-            {"encoding": "jsonParsed"},
-        ],
-    }
-    body = json.dumps(payload).encode()
-    req = urllib.request.Request(rpc_url, data=body, headers={
-        "Content-Type": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-    except Exception as e:
-        log(f"  ⚠️ RPC error in getTokenAccountsByOwner: {e}")
-        return None  # None = RPC failed (vs {} = success but no tokens)
-
-    # Check for RPC-level error response
-    if "error" in data:
-        log(f"  ⚠️ RPC returned error: {data['error']}")
-        return None
-
+    TOKEN_PROGRAMS = [
+        "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",   # Classic SPL Token
+        "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",   # Token-2022
+    ]
     result = {}
-    accounts = data.get("result", {}).get("value", [])
-    for acc in accounts:
-        info = acc.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
-        mint = info.get("mint", "")
-        amount = info.get("tokenAmount", {}).get("uiAmount", 0) or 0
-        if mint and amount > 0:
-            result[mint] = amount
+    any_success = False
+
+    for program_id in TOKEN_PROGRAMS:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [
+                wallet_pubkey,
+                {"programId": program_id},
+                {"encoding": "jsonParsed"},
+            ],
+        }
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(rpc_url, data=body, headers={
+            "Content-Type": "application/json",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception as e:
+            log(f"  ⚠️ RPC error in getTokenAccountsByOwner ({program_id[:8]}...): {e}")
+            continue
+
+        if "error" in data:
+            log(f"  ⚠️ RPC returned error ({program_id[:8]}...): {data['error']}")
+            continue
+
+        any_success = True
+        accounts = data.get("result", {}).get("value", [])
+        for acc in accounts:
+            info = acc.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+            mint = info.get("mint", "")
+            amount = info.get("tokenAmount", {}).get("uiAmount", 0) or 0
+            if mint and amount > 0:
+                result[mint] = amount
+
+    if not any_success:
+        return None  # All RPC calls failed
+
     return result
 
 
