@@ -896,9 +896,9 @@ def _compute_adaptive_interval(tcfg: dict) -> int:
 
     Returns interval in seconds.
     """
-    idle = int(_cfg(tcfg, "guardian", "interval_idle", default=120))
-    active = int(_cfg(tcfg, "guardian", "interval_active", default=20))
-    hot = int(_cfg(tcfg, "guardian", "interval_hot", default=10))
+    idle = int(_cfg(tcfg, "guardian", "interval_idle", default=30))
+    active = int(_cfg(tcfg, "guardian", "interval_active", default=5))
+    hot = int(_cfg(tcfg, "guardian", "interval_hot", default=1))
     hot_zone = float(_cfg(tcfg, "guardian", "hot_zone_pct", default=15))
 
     if not _last_pnl_cache:
@@ -946,53 +946,49 @@ def main():
         tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
         _wallet_pubkey_str = _get_wallet_pubkey(tcfg) or ""
 
+        _last_sol_fetch_time = 0.0
+        SOL_FETCH_INTERVAL = 30  # SOL price + balance every 30s (not every tick)
+
         try:
             while True:
-                now = time.time()
+                tick_start = time.time()
+                tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
 
-                # --- Price fetch + position check (adaptive interval) ---
-                if now - _last_price_fetch_time >= _watch_interval:
-                    tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+                # --- Batch price fetch (1 API call) ---
+                journal = load_json(JOURNAL_PATH)
+                open_trades = [t for t in journal.get("trades", []) if t.get("status") == "open"]
+                addrs = [t["address"] for t in open_trades if t.get("address")]
+                if addrs:
+                    fetched = _batch_fetch_prices(addrs)
+                    if fetched:
+                        _price_cache = fetched
+                else:
+                    _price_cache = {}
+                _last_price_fetch_time = tick_start
 
-                    # Batch fetch prices (1 API call for all positions)
-                    journal = load_json(JOURNAL_PATH)
-                    open_trades = [t for t in journal.get("trades", []) if t.get("status") == "open"]
-                    addrs = [t["address"] for t in open_trades if t.get("address")]
-                    if addrs:
-                        fetched = _batch_fetch_prices(addrs)
-                        if fetched:
-                            _price_cache = fetched
-                    else:
-                        _price_cache = {}
-
-                    # SOL price (for USD conversions)
+                # --- SOL price + balance (every 30s, not every tick) ---
+                if tick_start - _last_sol_fetch_time >= SOL_FETCH_INTERVAL:
                     sol_p = _fetch_sol_price()
                     if sol_p > 0:
                         _sol_price_usd = sol_p
-
-                    # SOL balance
                     if _wallet_pubkey_str:
                         rpc_url = _cfg(tcfg, "wallet", "rpc_url", default=SOLANA_MAINNET_RPC)
                         bal = _get_sol_balance(_wallet_pubkey_str, rpc_url)
                         if bal >= 0:
                             _wallet_balance_sol = bal
+                    _last_sol_fetch_time = tick_start
 
-                    # Check positions (SL/TP/trailing/BE/kill)
-                    try:
-                        actions = check_positions(dry_run=args.dry_run)
-                        if actions:
-                            log(f"→ {len(actions)} action(s) taken", alert=True)
-                    except Exception as e:
-                        log(f"❌ Position check error: {e}", alert=True)
+                # --- Check positions (SL/TP/trailing/BE/kill) ---
+                try:
+                    actions = check_positions(dry_run=args.dry_run)
+                    if actions:
+                        log(f"→ {len(actions)} action(s) taken", alert=True)
+                except Exception as e:
+                    log(f"❌ Position check error: {e}", alert=True)
 
-                    _last_price_fetch_time = now
-
-                    # Adaptive interval
-                    _watch_interval = _compute_adaptive_interval(tcfg)
-
-                # --- Wallet sync (time-based interval) ---
+                # --- Wallet sync (time-based) ---
                 sync_interval = int(_cfg(tcfg, "guardian", "wallet_sync_interval_s", default=300))
-                if now - _last_wallet_sync_time >= sync_interval:
+                if tick_start - _last_wallet_sync_time >= sync_interval:
                     if _wallet_pubkey_str:
                         try:
                             closed = sync_journal_with_wallet(dry_run=args.dry_run)
@@ -1000,11 +996,18 @@ def main():
                                 log(f"🔄 Wallet sync: closed {len(closed)} orphan(s)", alert=True)
                         except Exception as e:
                             log(f"⚠️ Wallet sync error: {e}")
-                    _last_wallet_sync_time = now
+                    _last_wallet_sync_time = tick_start
 
-                # --- Render TUI (every 1s) ---
+                # --- Adaptive interval ---
+                _watch_interval = _compute_adaptive_interval(tcfg)
+
+                # --- Render ---
                 _render_tui()
-                time.sleep(1)
+
+                # --- Sleep for remaining time in interval ---
+                elapsed = time.time() - tick_start
+                sleep_time = max(0.1, _watch_interval - elapsed)
+                time.sleep(sleep_time)
 
         except KeyboardInterrupt:
             log("Guardian stopped (Ctrl+C)")

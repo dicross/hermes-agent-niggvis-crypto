@@ -111,9 +111,9 @@ jupiter:
 #   hot     = position near SL or TP threshold (fast polling)
 # "Near" is defined by hot_zone_pct — e.g. 15 means within 15% of SL or TP.
 guardian:
-  interval_idle: 120
-  interval_active: 20
-  interval_hot: 10
+  interval_idle: 30
+  interval_active: 5
+  interval_hot: 1
   hot_zone_pct: 15
   wallet_sync_interval_s: 300
 
