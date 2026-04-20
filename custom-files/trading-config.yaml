@@ -68,7 +68,7 @@ risk:
   # Re-buy cooldown: block buying the same token within N minutes of closing
   # Prevents buying back right after trailing stop / SL (price likely correcting)
   # Set to 0 to disable.
-  rebuy_cooldown_minutes: 120
+  rebuy_cooldown_minutes: 240
 
 # =============================================================================
 # Token Filters (what to buy)

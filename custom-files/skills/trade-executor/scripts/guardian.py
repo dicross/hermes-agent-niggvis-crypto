@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -112,14 +113,14 @@ def _local_now() -> datetime:
 
 
 def log(msg: str, alert: bool = False):
-    """Write to log file. If alert=True, also show in TUI alerts area."""
-    try:
-        with open(GUARDIAN_LOG, "a") as f:
-            ts_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{ts_utc}] {msg}\n")
-    except Exception:
-        pass
+    """Write to log file only for alerts (significant events). Always print in no-TUI mode."""
     if alert:
+        try:
+            with open(GUARDIAN_LOG, "a") as f:
+                ts_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"[{ts_utc}] {msg}\n")
+        except Exception:
+            pass
         ts = _local_now().strftime("%H:%M:%S")
         _alerts.append(f"[{ts}] {msg}")
     if not _tui_enabled:
@@ -440,7 +441,10 @@ def _get_token_accounts(wallet_pubkey: str, rpc_url: str) -> dict:
 
 
 def _get_wallet_pubkey(tcfg: dict) -> str | None:
-    """Read wallet public key from keypair file."""
+    """Read wallet public key from keypair file.
+
+    Tries: 1) solders in current Python, 2) python_bin subprocess, 3) nacl.
+    """
     kp_path = _cfg(tcfg, "wallet", "keypair_path", default="")
     if not kp_path:
         return None
@@ -451,21 +455,38 @@ def _get_wallet_pubkey(tcfg: dict) -> str | None:
         with open(kp_path) as f:
             kp_data = json.load(f)
         if isinstance(kp_data, list) and len(kp_data) >= 64:
-            # JSON array keypair — first 32 bytes are private, derive public
-            # Use solders if available, fallback to base58
+            # Try solders in current Python
             try:
                 from solders.keypair import Keypair as SoldersKeypair
                 kp = SoldersKeypair.from_bytes(bytes(kp_data[:64]))
                 return str(kp.pubkey())
             except ImportError:
-                # Without solders, try nacl
-                try:
-                    import nacl.signing
-                    signing_key = nacl.signing.SigningKey(bytes(kp_data[:32]))
-                    import base58
-                    return base58.b58encode(bytes(signing_key.verify_key)).decode()
-                except ImportError:
-                    return None
+                pass
+            # Try python_bin from config (venv with solders)
+            python_bin = _cfg(tcfg, "python_bin", default="")
+            if python_bin:
+                python_bin = os.path.expanduser(str(python_bin))
+                if os.path.exists(python_bin):
+                    try:
+                        result = subprocess.run(
+                            [python_bin, "-c",
+                             "from solders.keypair import Keypair; import json; "
+                             f"kp = Keypair.from_bytes(bytes(json.load(open('{kp_path}'))[:64])); "
+                             "print(str(kp.pubkey()))"],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            return result.stdout.strip()
+                    except Exception:
+                        pass
+            # Fallback: nacl
+            try:
+                import nacl.signing
+                signing_key = nacl.signing.SigningKey(bytes(kp_data[:32]))
+                import base58
+                return base58.b58encode(bytes(signing_key.verify_key)).decode()
+            except ImportError:
+                return None
         elif isinstance(kp_data, str):
             return kp_data  # Assume it's already a pubkey string
     except Exception:
@@ -642,7 +663,6 @@ def _execute_jupiter_sell(address: str) -> bool:
         log("  ⚠️ jupiter_swap.py not found — cannot execute real sell")
         return False
     try:
-        import subprocess
         # Use python_bin from config (venv with solders)
         tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
         python_bin = _cfg(tcfg, "python_bin", default=sys.executable)

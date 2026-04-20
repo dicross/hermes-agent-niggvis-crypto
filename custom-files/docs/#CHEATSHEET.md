@@ -20,7 +20,7 @@ sudo systemctl restart hermes-gateway
 
 Uruchomienie guardiana:
 ```bash
-python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5 --interval 60
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
 ```
 
 ---
@@ -338,21 +338,20 @@ uv pip install croniter
 ### Position Guardian (real-time SL/TP/BE)
 
 Guardian to lekki monitor cen (BEZ LLM). Sprawdza pozycje w pętli z adaptacyjnym
-interwałem (idle/active/hot). Funkcje:
+interwałem (idle/active/hot). Każdy tick = fetch cen (1 batch API call) + SL/TP check + render.
+Funkcje:
 - **Stop-loss** — zamyka gdy P&L ≤ SL%
 - **Take-profit** — zamyka powyżej TP% (z trailing stop opcjonalnie)
 - **Break-even SL** — przesuwa SL na 0% gdy pozycja osiągnie +50% (konfigurowalny)
 - **Trailing stop** — po osiągnięciu TP%, śledzi peak i zamyka na pullbacku
-- **Wallet sync** — co 10 cykli sprawdza on-chain balanse, zamyka orphany
+- **Wallet sync** — co 5 min (konfigurowalny) sprawdza on-chain balanse, zamyka orphany
 - **Telegram** — powiadamia o każdym sell (SL/TP/trailing/BE/kill)
 - **Kill switch** — awaryjne zamknięcie wszystkiego
+- **Dashboard TUI** — wallet balance, pozycje z cenami, inline alerty
 
 ```bash
 # Start (w tle, screen/tmux) — adaptacyjny interwał
 python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
- 
-# Z większą historią TUI
-python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5
  
 # Dry run (sprawdza ale nie zamyka)
 python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --dry-run
@@ -360,17 +359,17 @@ python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --dry-run
 # Jednorazowy check (+ wallet sync)
 python3 ~/.hermes/skills/trade-executor/scripts/guardian.py
  
-# Bez TUI (np. do logowania)
+# Bez TUI (np. do logowania/systemd)
 python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --no-tui
  
-# Guardian log
+# Guardian log (tylko alerty — SL/TP/trailing/BE/sync/error)
 tail -f ~/.hermes/cron/guardian.log
 ```
 
 Adaptacyjny interwał (z trading-config.yaml → guardian):
-- **idle** (120s): brak otwartych pozycji
-- **active** (20s): pozycje w normalnym zakresie
-- **hot** (10s): pozycja blisko SL lub TP (w strefie hot_zone_pct)
+- **idle** (30s): brak otwartych pozycji
+- **active** (5s): pozycje w normalnym zakresie
+- **hot** (1s): pozycja blisko SL lub TP (w strefie hot_zone_pct)
 
 Guardian blokuje drugie uruchomienie (file lock) — bezpieczne dla cron.
 
@@ -489,6 +488,7 @@ python3 custom-files/scripts/cron_viewer.py --tail 50
 | Take-profit | +100% | `risk.take_profit_pct` — min % zysku do zamknięcia |
 | Trailing stop | 15% | `risk.trailing_stop_pct` — pullback od peaku |
 | Break-even trigger | +50% | `risk.breakeven_trigger_pct` — SL→0% po osiągnięciu |
+| Re-buy cooldown | 120 min | `risk.rebuy_cooldown_minutes` — blokada re-buy po zamknięciu |
 | Daily loss limit | -20% | `risk.daily_loss_limit_pct` — suma P&L zamkniętych |
 | Min safety score | 60 | `filters.min_safety_score` |
 | Min liquidity | $10K | `filters.min_liquidity_usd` |
@@ -534,7 +534,7 @@ bash custom-files/install-skills.sh --full
  
 # Restart guardiana (tmux):
 # Ctrl+C w oknie guardiana, potem:
-python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
 ```
 
 Merge z upstream (tylko WSL): Zob. `custom-files/docs/#GIT-WORKFLOW.md`.

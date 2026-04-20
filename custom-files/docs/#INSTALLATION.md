@@ -357,7 +357,7 @@ tmux send-keys -t hermes:0 'hermes gateway start' Enter
  
 # Okno 1: Guardian (fast price monitor)
 tmux new-window -t hermes:1 -n guardian
-tmux send-keys -t hermes:1 'python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5' Enter
+tmux send-keys -t hermes:1 'python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch' Enter
  
 # Attach — podgląd na żywo
 tmux attach -t hermes
@@ -476,7 +476,7 @@ sudo systemctl restart hermes-gateway hermes-guardian
 tmux send-keys -t hermes:0 C-c
 tmux send-keys -t hermes:0 'hermes gateway start' Enter
 tmux send-keys -t hermes:1 C-c
-tmux send-keys -t hermes:1 'python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch --history 5' Enter
+tmux send-keys -t hermes:1 'python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch' Enter
 ```
 
 ---
@@ -636,8 +636,9 @@ python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet
 
 ### "Guardian: price unavailable"
 ```bash
-# DEXScreener może mieć rate limit. Zwiększ interval:
-python3 guardian.py --watch --interval 180
+# DEXScreener może mieć rate limit. Zwiększ interval w trading-config.yaml:
+#   guardian.interval_active: 10   (default 5s)
+#   guardian.interval_hot: 3       (default 1s)
  
 # Sprawdź ręcznie czy token istnieje:
 curl -s 'https://api.dexscreener.com/tokens/v1/solana/<address>' | head -c 200
