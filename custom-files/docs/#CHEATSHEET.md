@@ -396,16 +396,28 @@ Ustaw `false` aby wyciszyć konkretny typ. Token bota i chat_id czytane z `~/.he
 ### Session Analyzer
 
 Skrypt do analizy sesji Hermes — wyciąga trades, bloki, błędy, zmiany config.
+Output w formacie Markdown — nadaje się do wklejenia do AI assistanta lub git commit.
 
 ```bash
-# Analiza wszystkich sesji w katalogu
+# Analiza wszystkich sesji (WSL) — wypisuje na stdout
 python3 custom-files/analyze-sessions.py ~/.hermes/sessions/
+ 
+# Zapisz raport do pliku MD
+python3 custom-files/analyze-sessions.py ~/.hermes/sessions/ -o ~/session-report.md
  
 # Analiza skopiowanych sesji (macOS)
 python3 custom-files/analyze-sessions.py custom-files/.hermes-copied/sessions/
+ 
+# Zapisz raport skopiowanych sesji
+python3 custom-files/analyze-sessions.py custom-files/.hermes-copied/sessions/ -o session-report.md
 ```
 
-Output nadaje się do wklejenia do AI assistanta jako kontekst.
+**Quick copy (WSL)**:
+```bash
+python3 ~/projects/hermes-agent-niggvis-crypto/custom-files/analyze-sessions.py ~/.hermes/sessions/ -o ~/session-report.md && cat ~/session-report.md
+```
+
+Raport zawiera: wallet balance, trades, blocked trades, config changes, agent responses, position checks, listę sesji.
 
 ### Self-Learning Engine
 

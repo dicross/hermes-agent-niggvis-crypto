@@ -179,7 +179,12 @@ def _get_today_closed(journal: dict) -> list:
 
 
 def _get_daily_pnl(journal: dict, mode: str = None) -> float:
-    """Calculate today's total P&L in %. If mode given, only count same-mode trades."""
+    """Calculate today's portfolio P&L in %.
+
+    Uses actual SOL amounts (pnl_sol) to compute real portfolio impact.
+    Formula: sum(pnl_sol) / starting_portfolio_estimate * 100
+    Starting portfolio ≈ wallet_balance_now + invested + returned_from_closed_today
+    """
     closed_today = _get_today_closed(journal)
     if not closed_today:
         return 0.0
@@ -189,7 +194,22 @@ def _get_daily_pnl(journal: dict, mode: str = None) -> float:
         closed_today = [t for t in closed_today if t.get("paper")]
     if not closed_today:
         return 0.0
-    return sum(t.get("pnl_pct", 0) for t in closed_today)
+
+    # Sum actual SOL profit/loss from today's closed trades
+    total_pnl_sol = sum(float(t.get("pnl_sol", 0)) for t in closed_today)
+
+    # Estimate starting portfolio = current invested + closed amounts + pnl
+    # This approximates what the portfolio was at start of day
+    invested_now = _get_total_invested(journal)
+    closed_amounts = sum(float(t.get("amount_sol", 0)) for t in closed_today)
+    # Starting portfolio ≈ what we have now invested + what we got back from closed trades
+    # (wallet balance would be more accurate but requires RPC call)
+    start_estimate = invested_now + closed_amounts + abs(total_pnl_sol)
+
+    if start_estimate <= 0:
+        return 0.0
+
+    return (total_pnl_sol / start_estimate) * 100
 
 
 def _get_total_invested(journal: dict) -> float:
