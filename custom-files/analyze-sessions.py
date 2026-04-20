@@ -103,7 +103,7 @@ def analyze_session(filepath: str) -> dict:
 
             # Sells
             if "Processing SELL" in content:
-                token = _extract(r"Token:\s+(\S+)", content) or "?"
+                token = (_extract(r"Token:\s+([A-Za-z0-9_]+)", content) or "?").strip()
                 pnl = _extract(r"P&L.*?([-+][\d.]+%)", content) or "?"
                 result["sells"].append({"token": token, "pnl": pnl})
 

@@ -225,6 +225,7 @@ def _get_total_invested(journal: dict) -> float:
 def cmd_check(args):
     """Pre-trade approval check."""
     cfg = _load_config()
+    cfg_raw = _parse_yaml_flat(CONFIG_PATH)
     journal = _load_journal()
 
     reasons = []
@@ -264,6 +265,27 @@ def cmd_check(args):
                 reasons.append(f"Already have open position in this token (trade #{t['id']})")
                 approved = False
                 break
+
+    # 6b. Re-buy cooldown — block buying a recently closed token
+    rebuy_cooldown = _cfg(cfg_raw, "risk", "rebuy_cooldown_minutes", default=0)
+    if rebuy_cooldown and args.token and approved:
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=int(rebuy_cooldown))
+        for t in journal.get("trades", []):
+            if t.get("status") != "closed" or t.get("address") != args.token:
+                continue
+            exit_time_str = t.get("exit_time", "")
+            try:
+                exit_time = datetime.fromisoformat(exit_time_str.replace("Z", "+00:00"))
+                if exit_time > cutoff:
+                    mins_ago = int((datetime.now(timezone.utc) - exit_time).total_seconds() / 60)
+                    reasons.append(
+                        f"Re-buy cooldown: #{t['id']} {t.get('token', '?')} closed {mins_ago}m ago "
+                        f"(cooldown: {rebuy_cooldown}m)"
+                    )
+                    approved = False
+                    break
+            except (ValueError, TypeError):
+                pass
 
     # 7. Budget check — use wallet balance concept via position sizing
     # (no more total_budget_sol — it's dynamic now based on wallet balance)

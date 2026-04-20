@@ -65,6 +65,10 @@ risk:
   # Kill switch: emergency stop all trading
   kill_switch: false
   kill_reason: null
+  # Re-buy cooldown: block buying the same token within N minutes of closing
+  # Prevents buying back right after trailing stop / SL (price likely correcting)
+  # Set to 0 to disable.
+  rebuy_cooldown_minutes: 120
 
 # =============================================================================
 # Token Filters (what to buy)
@@ -111,6 +115,7 @@ guardian:
   interval_active: 20
   interval_hot: 10
   hot_zone_pct: 15
+  wallet_sync_interval_s: 300
 
 # =============================================================================
 # Notifications (Telegram)

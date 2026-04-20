@@ -12,8 +12,7 @@ Adaptive interval (from trading-config.yaml → guardian section):
 
 Usage:
     python3 guardian.py              # One-shot check
-    python3 guardian.py --watch      # Continuous loop (adaptive interval)
-    python3 guardian.py --watch --history 5      # Show last 5 runs
+    python3 guardian.py --watch      # Continuous loop (adaptive interval, 1s TUI refresh)
     python3 guardian.py --dry-run    # Check but don't sell
     python3 guardian.py --no-tui     # Disable screen clearing (for logs)
 
@@ -89,12 +88,22 @@ def release_lock():
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Run history for TUI display
-_run_history: deque = deque(maxlen=10)
-_current_run_lines: list = []
+# ---------------------------------------------------------------------------
+# TUI state
+# ---------------------------------------------------------------------------
+
 _tui_enabled: bool = True
-_history_size: int = 3
-_check_counter: int = 0
+_alerts: deque = deque(maxlen=8)      # Recent events shown in TUI
+_price_cache: dict = {}               # address -> {price_usd, market_cap, liquidity_usd}
+_position_states: dict = {}           # trade_id -> display data for TUI
+_sol_price_usd: float = 0.0
+_wallet_balance_sol: float = 0.0
+_wallet_pubkey_str: str = ""
+_last_price_fetch_time: float = 0.0
+_last_wallet_sync_time: float = 0.0
+_num_open: int = 0
+_watch_interval: int = 120
+_dry_run_mode: bool = False
 
 
 def _local_now() -> datetime:
@@ -102,76 +111,145 @@ def _local_now() -> datetime:
     return datetime.now().astimezone()
 
 
-def log(msg: str):
-    ts = _local_now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{ts}] {msg}"
-    _current_run_lines.append(line)
-    # Always append to log file (with UTC for consistency)
+def log(msg: str, alert: bool = False):
+    """Write to log file. If alert=True, also show in TUI alerts area."""
     try:
         with open(GUARDIAN_LOG, "a") as f:
             ts_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             f.write(f"[{ts_utc}] {msg}\n")
     except Exception:
         pass
+    if alert:
+        ts = _local_now().strftime("%H:%M:%S")
+        _alerts.append(f"[{ts}] {msg}")
+    if not _tui_enabled:
+        ts = _local_now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{ts}] {msg}")
 
 
-def _flush_run():
-    """Save current run lines to history and reset."""
-    global _current_run_lines
-    if _current_run_lines:
-        _run_history.append(list(_current_run_lines))
-        _current_run_lines = []
+def _fmt_usd(v: float) -> str:
+    """Format USD value compactly."""
+    if v >= 1_000_000:
+        return f"${v / 1_000_000:.2f}M"
+    if v >= 1_000:
+        return f"${v / 1_000:.1f}K"
+    if v >= 0.01:
+        return f"${v:.2f}"
+    return f"${v:.4f}"
+
+
+def _fmt_price(v: float) -> str:
+    """Format token price with appropriate precision."""
+    if v == 0:
+        return "$0"
+    if v >= 1:
+        return f"${v:.4f}"
+    if v >= 0.001:
+        return f"${v:.6f}"
+    if v >= 0.000001:
+        return f"${v:.4e}"
+    return f"${v:.2e}"
 
 
 def _render_tui():
-    """Clear screen and render last N runs + current."""
+    """Clear screen and render position dashboard."""
     if not _tui_enabled:
-        # Fallback: just print current run lines normally
-        for line in _current_run_lines:
-            print(line)
         return
 
     term_width = shutil.get_terminal_size((80, 24)).columns
-    separator = "─" * min(term_width, 72)
+    w = min(term_width, 72)
+    sep = "─" * w
+    sep_bold = "═" * w
 
-    # Clear screen — use os.system('clear') as fallback for WSL
     os.system('clear')
 
-    # Header
-    now = _local_now().strftime("%H:%M:%S %Z")
+    # --- Header ---
+    now = _local_now().strftime("%H:%M:%S")
     mode_label = "hot" if _watch_interval <= 10 else ("active" if _watch_interval <= 30 else "idle")
-    print(f"🛡️  GUARDIAN  │  {now}  │  {_watch_interval}s ({mode_label})  │  history: {_history_size}")
-    print(separator)
+    dry = " DRY-RUN" if _dry_run_mode else ""
+    print(f"🛡️  GUARDIAN  │  {now}  │  ⚡ {_watch_interval}s {mode_label}{dry}  │  Ctrl+C stop")
+    print(sep_bold)
 
-    # Previous runs (gray = dimmed)
+    # --- Wallet info ---
+    bal_usd = f" ({_fmt_usd(_wallet_balance_sol * _sol_price_usd)})" if _sol_price_usd > 0 else ""
+    total_pos_sol = sum(s.get("amount_sol", 0) for s in _position_states.values())
+    pos_usd = f" ({_fmt_usd(total_pos_sol * _sol_price_usd)})" if _sol_price_usd > 0 else ""
+
+    print(f"  Wallet: {_wallet_pubkey_str or '?'}")
+    print(f"  Balance: {_wallet_balance_sol:.4f} SOL{bal_usd}")
+    print(f"  Positions: {_num_open} open │ {total_pos_sol:.4f} SOL{pos_usd}")
+
+    # --- Wallet sync status ---
+    if _last_wallet_sync_time > 0:
+        ago = int(time.time() - _last_wallet_sync_time)
+        sync_ago = f"{ago}s ago" if ago < 60 else f"{ago // 60}m ago"
+        print(f"  🔄 Wallet sync: {sync_ago}")
+
+    print(sep)
+
+    # --- Positions ---
     GRAY = "\033[90m"
     RESET = "\033[0m"
-    history_to_show = list(_run_history)[-_history_size:]
-    if history_to_show:
-        for i, run_lines in enumerate(history_to_show):
-            for line in run_lines:
-                print(f"{GRAY}  {line}{RESET}")
-            if i < len(history_to_show) - 1:
-                print(f"{GRAY}  {separator}{RESET}")
-        print(separator)
 
-    # Current run (normal color = bright)
-    if _current_run_lines:
-        for line in _current_run_lines:
-            print(f"  {line}")
+    if not _position_states:
+        print(f"{GRAY}  No open positions{RESET}")
     else:
-        print("  Waiting for next check...")
+        sorted_pos = sorted(
+            _position_states.values(),
+            key=lambda s: s.get("pnl_pct", 0),
+            reverse=True,
+        )
+        for i, s in enumerate(sorted_pos):
+            pnl = s.get("pnl_pct", 0)
+            trailing = s.get("trailing_active", False)
+            be = s.get("breakeven_active", False)
 
-    # Footer
-    print(separator)
-    next_check = _local_now().strftime("%H:%M:%S")
-    print(f"  Next check in ~{_watch_interval}s  │  Ctrl+C to stop")
+            # Status icon
+            icon = "🚀" if trailing else ("🟢" if pnl >= 0 else "🔴")
+
+            token = s.get("token", "?")
+            amount_sol = s.get("amount_sol", 0)
+            amount_usd = f" ({_fmt_usd(amount_sol * _sol_price_usd)})" if _sol_price_usd > 0 else ""
+            addr = s.get("address", "")
+            entry_p = _fmt_price(s.get("entry_price", 0))
+            curr_p = _fmt_price(s.get("current_price", 0))
+            mcap = s.get("market_cap", 0)
+            mcap_str = f" │ MC {_fmt_usd(mcap)}" if mcap > 0 else ""
+
+            print(f"  {icon} {token} — {pnl:+.1f}% — {amount_sol:.4f} SOL{amount_usd}")
+            print(f"     {addr}")
+            print(f"     • {entry_p} → {curr_p}{mcap_str}")
+
+            # Inline position alerts
+            if be:
+                eff_sl = s.get("effective_sl", 0)
+                print(f"     🔒 Break-even active (SL → {eff_sl}%)")
+            if trailing:
+                peak = s.get("peak_pnl", 0)
+                trail_rem = s.get("trail_remaining", 0)
+                print(f"     📈 Trailing: peak {peak:+.1f}%, trigger in {trail_rem:.1f}%")
+
+            if i < len(sorted_pos) - 1:
+                print()
+
+    print(sep)
+
+    # --- Recent alerts ---
+    if _alerts:
+        YELLOW = "\033[93m"
+        for a in _alerts:
+            print(f"  {YELLOW}{a}{RESET}")
+        print(sep)
+
+    # --- Footer ---
+    if _last_price_fetch_time > 0:
+        price_ago = int(time.time() - _last_price_fetch_time)
+        next_in = max(0, _watch_interval - price_ago)
+        print(f"  📡 Prices: {price_ago}s ago │ next: {next_in}s")
+    else:
+        print(f"  📡 Waiting for first price fetch...")
 
     sys.stdout.flush()
-
-
-# Watch interval (set from args)
-_watch_interval: int = 120
 
 
 def _http_get(url: str) -> dict | list | None:
@@ -198,6 +276,66 @@ def _http_post(url: str, data: dict) -> dict | None:
             return json.loads(resp.read().decode())
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Batch price fetch (single API call for all positions)
+# ---------------------------------------------------------------------------
+
+def _batch_fetch_prices(addresses: list) -> dict:
+    """Fetch prices for multiple tokens in one DEXScreener API call.
+
+    Returns {address: {price_usd, market_cap, liquidity_usd}}.
+    """
+    if not addresses:
+        return {}
+    addrs = ",".join(addresses)
+    url = f"{DEXSCREENER_BASE}/tokens/v1/solana/{addrs}"
+    data = _http_get(url)
+    if not data or not isinstance(data, list):
+        return {}
+    result = {}
+    for pair in data:
+        base = pair.get("baseToken", {})
+        addr = base.get("address", "")
+        if not addr:
+            continue
+        liq = float(pair.get("liquidity", {}).get("usd", 0) or 0)
+        if addr not in result or liq > result[addr]["liquidity_usd"]:
+            result[addr] = {
+                "price_usd": float(pair.get("priceUsd", 0) or 0),
+                "market_cap": float(pair.get("marketCap", 0) or pair.get("fdv", 0) or 0),
+                "liquidity_usd": liq,
+            }
+    return result
+
+
+def _fetch_sol_price() -> float:
+    """Get current SOL/USD price from Jupiter Price API."""
+    url = "https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112"
+    data = _http_get(url)
+    if data and isinstance(data, dict):
+        sol_data = data.get("data", {}).get(
+            "So11111111111111111111111111111111111111112", {}
+        )
+        price = sol_data.get("price")
+        if price:
+            return float(price)
+    return 0.0
+
+
+def _get_sol_balance(pubkey: str, rpc_url: str) -> float:
+    """Get SOL balance for a wallet via RPC."""
+    resp = _http_post(rpc_url, {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "getBalance",
+        "params": [pubkey],
+    })
+    if resp and "result" in resp:
+        lamports = resp["result"].get("value", 0)
+        return lamports / 1e9
+    return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +506,7 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
             continue  # Still holding — journal is correct
 
         # Token not on-chain but journal says open → manual close detected
-        log(f"  🔄 #{t['id']} {t.get('token', '?')}: no on-chain balance — closing journal entry")
+        log(f"  🔄 #{t['id']} {t.get('token', '?')}: no on-chain balance — closing journal entry", alert=True)
         if not dry_run:
             # Try to get current price for P&L calculation
             price = get_price(addr)
@@ -400,6 +538,10 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
 
 
 def get_price(address: str) -> float | None:
+    # Use batch cache if available (no extra API call)
+    if _price_cache and address in _price_cache:
+        p = _price_cache[address].get("price_usd", 0)
+        return p if p > 0 else None
     url = f"{DEXSCREENER_BASE}/tokens/v1/solana/{address}"
     data = _http_get(url)
     if not data or not isinstance(data, list) or len(data) == 0:
@@ -525,14 +667,16 @@ def _execute_jupiter_sell(address: str) -> bool:
 
 def check_positions(dry_run: bool = False) -> list:
     """Check all open positions. Returns list of actions taken."""
-    global _last_pnl_cache
+    global _last_pnl_cache, _position_states, _num_open
     _last_pnl_cache = {}
+    _position_states = {}
 
     journal = load_json(JOURNAL_PATH)
     tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
 
     trades = journal.get("trades", [])
     open_trades = [t for t in trades if t.get("status") == "open"]
+    _num_open = len(open_trades)
 
     if not open_trades:
         return []
@@ -567,6 +711,23 @@ def check_positions(dry_run: bool = False) -> list:
         # Cache for adaptive interval (no extra API calls)
         _last_pnl_cache[t["id"]] = pnl_pct
 
+        # Populate TUI state
+        mcap = _price_cache.get(addr, {}).get("market_cap", 0) if _price_cache else 0
+        _position_states[t["id"]] = {
+            "token": t.get("token", "?"),
+            "address": addr,
+            "amount_sol": float(t.get("amount_sol", 0)),
+            "entry_price": entry,
+            "current_price": price,
+            "pnl_pct": pnl_pct,
+            "market_cap": mcap,
+            "breakeven_active": bool(t.get("breakeven_active")),
+            "trailing_active": False,
+            "peak_pnl": float(t.get("peak_pnl_pct", 0)),
+            "trail_remaining": 0.0,
+            "effective_sl": sl_pct,
+        }
+
         # Break-even SL: if position ever exceeded be_trigger, effective SL = 0%
         effective_sl = sl_pct
         if be_trigger > 0:
@@ -577,19 +738,25 @@ def check_positions(dry_run: bool = False) -> list:
                 if not t.get("breakeven_active"):
                     t["breakeven_active"] = True
                     journal_dirty = True
-                    log(f"  🔒 #{t['id']} {t.get('token', '?')}: break-even SL activated (hit {be_trigger}%+)")
+                    log(f"  🔒 #{t['id']} {t.get('token', '?')}: break-even SL activated (hit {be_trigger}%+)", alert=True)
                     notify_telegram(
                         f"🔒 *Break-even SL activated*\n"
                         f"#{t['id']} {t.get('token', '?')}: hit {pnl_pct:+.1f}% (trigger: {be_trigger}%)\n"
                         f"SL moved from {sl_pct}% → 0% (entry price)",
                         event="on_breakeven_activated",
                     )
+                # Update TUI state
+                _position_states[t["id"]]["breakeven_active"] = True
+                _position_states[t["id"]]["effective_sl"] = 0
+
+        # Update effective SL in TUI state
+        _position_states[t["id"]]["effective_sl"] = effective_sl
 
         # Stop-loss check (using effective SL — may be 0% if BE activated)
         if pnl_pct <= effective_sl:
             sl_label = f"BE 0%" if effective_sl == 0 else f"{effective_sl}%"
             action = f"STOP_LOSS #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit {sl_label})"
-            log(f"  🚨 {action}")
+            log(f"  🚨 {action}", alert=True)
 
             if not dry_run:
                 # Real mode: execute Jupiter sell first
@@ -602,7 +769,7 @@ def check_positions(dry_run: bool = False) -> list:
                 t["exit_reason"] = f"Guardian auto-stop-loss ({pnl_pct:.1f}%)"
                 t["pnl_pct"] = round(pnl_pct, 2)
                 t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)")
+                log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)", alert=True)
                 notify_telegram(
                     f"🚨 *STOP LOSS* — #{t['id']} {t.get('token', '?')}\n"
                     f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
@@ -627,7 +794,7 @@ def check_positions(dry_run: bool = False) -> list:
                 if drop_from_peak >= trail_pct:
                     # Trailing stop triggered — sell
                     action = f"TRAILING_STOP #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (peak {peak:+.1f}%, trail -{trail_pct}%)"
-                    log(f"  📉 {action}")
+                    log(f"  📉 {action}", alert=True)
                     if not dry_run:
                         if mode == "real":
                             _execute_jupiter_sell(addr)
@@ -637,7 +804,7 @@ def check_positions(dry_run: bool = False) -> list:
                         t["exit_reason"] = f"Guardian trailing-stop (peak {peak:.1f}%, drop {drop_from_peak:.1f}%)"
                         t["pnl_pct"] = round(pnl_pct, 2)
                         t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                        log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% (peak was {peak:+.1f}%)")
+                        log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% (peak was {peak:+.1f}%)", alert=True)
                         notify_telegram(
                             f"📉 *TRAILING STOP* — #{t['id']} {t.get('token', '?')}\n"
                             f"P&L: {pnl_pct:+.1f}% (peak: {peak:+.1f}%)\n"
@@ -647,12 +814,17 @@ def check_positions(dry_run: bool = False) -> list:
                         )
                     actions.append({"type": "TRAILING_STOP", "id": t["id"], "pnl": pnl_pct, "peak": peak})
                 else:
-                    # Still riding — log status with peak
+                    # Still riding — update TUI state
+                    _position_states[t["id"]].update({
+                        "trailing_active": True,
+                        "peak_pnl": peak,
+                        "trail_remaining": trail_pct - drop_from_peak,
+                    })
                     log(f"  🚀 #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (peak {peak:+.1f}%, trail in {trail_pct - drop_from_peak:.1f}%)")
             else:
                 # No trailing — instant take-profit (old behavior)
                 action = f"TAKE_PROFIT #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit +{tp_pct}%)"
-                log(f"  🎯 {action}")
+                log(f"  🎯 {action}", alert=True)
                 if not dry_run:
                     if mode == "real":
                         _execute_jupiter_sell(addr)
@@ -662,7 +834,7 @@ def check_positions(dry_run: bool = False) -> list:
                     t["exit_reason"] = f"Guardian auto-take-profit ({pnl_pct:.1f}%)"
                     t["pnl_pct"] = round(pnl_pct, 2)
                     t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                    log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)")
+                    log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)", alert=True)
                     notify_telegram(
                         f"🎯 *TAKE PROFIT* — #{t['id']} {t.get('token', '?')}\n"
                         f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
@@ -673,7 +845,7 @@ def check_positions(dry_run: bool = False) -> list:
 
         # Kill switch — sell everything
         elif kill:
-            log(f"  🔴 KILL SWITCH — closing #{t['id']} {t.get('token', '?')}")
+            log(f"  🔴 KILL SWITCH — closing #{t['id']} {t.get('token', '?')}", alert=True)
             if not dry_run:
                 if mode == "real":
                     _execute_jupiter_sell(addr)
@@ -747,65 +919,93 @@ def _compute_adaptive_interval(tcfg: dict) -> int:
 
 
 def main():
-    global _tui_enabled, _history_size, _watch_interval
+    global _tui_enabled, _watch_interval, _dry_run_mode, _wallet_pubkey_str
+    global _wallet_balance_sol, _sol_price_usd, _price_cache
+    global _last_price_fetch_time, _last_wallet_sync_time
 
     parser = argparse.ArgumentParser(description="Position Guardian — fast price monitor")
     parser.add_argument("--watch", action="store_true", help="Continuous monitoring loop")
-    parser.add_argument("--interval", type=int, default=120, help="Check interval in seconds (default: 120)")
-    parser.add_argument("--history", type=int, default=3, help="Number of past runs to display (default: 3)")
+    parser.add_argument("--interval", type=int, default=0, help="Override initial check interval (0=auto)")
     parser.add_argument("--dry-run", action="store_true", help="Check but don't execute sells")
     parser.add_argument("--no-tui", action="store_true", help="Disable TUI (plain log output, good for piping)")
     args = parser.parse_args()
 
     _tui_enabled = not args.no_tui and sys.stdout.isatty()
-    _history_size = args.history
-    _watch_interval = args.interval
+    _dry_run_mode = args.dry_run
+    if args.interval > 0:
+        _watch_interval = args.interval
 
     if args.watch:
         if not acquire_lock():
             print("Guardian already running (lock held). Exiting.")
             sys.exit(0)
 
-        log(f"Guardian started (adaptive interval, dry-run: {args.dry_run})")
-        _render_tui()
-        global _check_counter
-        _sync_counter = 0
-        SYNC_EVERY_N_CHECKS = 10  # Wallet sync every N checks (not every cycle)
+        log("Guardian started (adaptive interval, dry-run: {})".format(args.dry_run))
+
+        # Initial config read + wallet pubkey
+        tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+        _wallet_pubkey_str = _get_wallet_pubkey(tcfg) or ""
+
         try:
             while True:
-                _flush_run()
-                try:
-                    _check_counter += 1
-                    _sync_counter += 1
-                    ts = _local_now().strftime("%H:%M:%S")
-                    log(f"🔍 Check #{_check_counter} at {ts}")
+                now = time.time()
 
-                    # Periodic wallet sync (every N checks)
-                    if _sync_counter >= SYNC_EVERY_N_CHECKS:
-                        _sync_counter = 0
+                # --- Price fetch + position check (adaptive interval) ---
+                if now - _last_price_fetch_time >= _watch_interval:
+                    tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+
+                    # Batch fetch prices (1 API call for all positions)
+                    journal = load_json(JOURNAL_PATH)
+                    open_trades = [t for t in journal.get("trades", []) if t.get("status") == "open"]
+                    addrs = [t["address"] for t in open_trades if t.get("address")]
+                    if addrs:
+                        fetched = _batch_fetch_prices(addrs)
+                        if fetched:
+                            _price_cache = fetched
+                    else:
+                        _price_cache = {}
+
+                    # SOL price (for USD conversions)
+                    sol_p = _fetch_sol_price()
+                    if sol_p > 0:
+                        _sol_price_usd = sol_p
+
+                    # SOL balance
+                    if _wallet_pubkey_str:
+                        rpc_url = _cfg(tcfg, "wallet", "rpc_url", default=SOLANA_MAINNET_RPC)
+                        bal = _get_sol_balance(_wallet_pubkey_str, rpc_url)
+                        if bal >= 0:
+                            _wallet_balance_sol = bal
+
+                    # Check positions (SL/TP/trailing/BE/kill)
+                    try:
+                        actions = check_positions(dry_run=args.dry_run)
+                        if actions:
+                            log(f"→ {len(actions)} action(s) taken", alert=True)
+                    except Exception as e:
+                        log(f"❌ Position check error: {e}", alert=True)
+
+                    _last_price_fetch_time = now
+
+                    # Adaptive interval
+                    _watch_interval = _compute_adaptive_interval(tcfg)
+
+                # --- Wallet sync (time-based interval) ---
+                sync_interval = int(_cfg(tcfg, "guardian", "wallet_sync_interval_s", default=300))
+                if now - _last_wallet_sync_time >= sync_interval:
+                    if _wallet_pubkey_str:
                         try:
                             closed = sync_journal_with_wallet(dry_run=args.dry_run)
                             if closed:
-                                log(f"  🔄 Wallet sync: closed {len(closed)} orphan(s)")
+                                log(f"🔄 Wallet sync: closed {len(closed)} orphan(s)", alert=True)
                         except Exception as e:
-                            log(f"  ⚠️ Wallet sync error: {e}")
+                            log(f"⚠️ Wallet sync error: {e}")
+                    _last_wallet_sync_time = now
 
-                    actions = check_positions(dry_run=args.dry_run)
-                    if actions:
-                        log(f"  → {len(actions)} action(s) taken")
-                    else:
-                        log("  ✅ No exit signals")
-                except Exception as e:
-                    log(f"  ❌ Error: {e}")
-
-                # Adaptive interval — re-read config each cycle
-                tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
-                interval = _compute_adaptive_interval(tcfg)
-                _watch_interval = interval
-                log(f"  ⏱ Next check in {interval}s")
-
+                # --- Render TUI (every 1s) ---
                 _render_tui()
-                time.sleep(interval)
+                time.sleep(1)
+
         except KeyboardInterrupt:
             log("Guardian stopped (Ctrl+C)")
             if _tui_enabled:
@@ -813,9 +1013,9 @@ def main():
         finally:
             release_lock()
     else:
-        _tui_enabled = False  # One-shot always plain
+        # One-shot mode (plain output)
+        _tui_enabled = False
         log("🛡️ Guardian one-shot check")
-        # Wallet sync first
         try:
             closed = sync_journal_with_wallet(dry_run=args.dry_run)
             if closed:
@@ -825,8 +1025,6 @@ def main():
         actions = check_positions(dry_run=args.dry_run)
         if not actions:
             log("  No exit signals.")
-        for line in _current_run_lines:
-            print(line)
 
 
 if __name__ == "__main__":
