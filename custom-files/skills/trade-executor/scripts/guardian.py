@@ -530,7 +530,6 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
         return []
 
     closed_ids = []
-    would_close = []
 
     for t in open_trades:
         addr = t.get("address", "")
@@ -541,20 +540,6 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
         if on_chain_balance > 0:
             continue  # Still holding — journal is correct
 
-        would_close.append(t)
-
-    # SAFETY: if ALL open positions would be closed, likely RPC returned
-    # incomplete data (rate limit, partial response). Skip and warn.
-    if len(would_close) == len(open_trades) and len(open_trades) > 1:
-        log(
-            f"  ⚠️ Wallet sync would close ALL {len(open_trades)} positions — "
-            f"likely RPC error/rate limit. Skipping.",
-            alert=True,
-        )
-        return []
-
-    for t in would_close:
-        addr = t.get("address", "")
         # Token not on-chain but journal says open → manual close detected
         log(f"  🔄 #{t['id']} {t.get('token', '?')}: no on-chain balance — closing journal entry", alert=True)
         if not dry_run:
