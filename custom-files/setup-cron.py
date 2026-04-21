@@ -111,6 +111,67 @@ JOBS = [
             "Keep report to 10-15 lines."
         ),
     },
+    {
+        "name": "position-evaluator",
+        "schedule": "every 9999m",
+        "paused": True,
+        "skills": ["trade-executor", "trade-journal", "risk-manager", "crypto-scanner", "onchain-analyzer"],
+        "deliver": "telegram",
+        "prompt": (
+            "You are the Position Evaluator. Guardian triggered you because a position "
+            "crossed an evaluation tier.\n\n"
+            "Step 1: Read ~/.hermes/cron/pending-evaluation.json to get the trade_id.\n"
+            "Step 2: Read trade-journal to find that trade (token address, entry price, "
+            "current P&L, amount, time held).\n"
+            "Step 3: Fetch fresh token data from DEXScreener:\n"
+            "  python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py info <TOKEN_ADDRESS>\n"
+            "Step 4: Analyze the position. Consider:\n"
+            "  - Price momentum (1h, 6h, 24h changes)\n"
+            "  - Buy/sell ratio (are buyers dominant?)\n"
+            "  - Volume relative to market cap (healthy trading activity?)\n"
+            "  - Liquidity depth (enough to exit safely?)\n"
+            "  - Is this organic growth or a pump that will dump?\n"
+            "  - How long has the position been held?\n"
+            "  - Market context (is the whole market up or just this token?)\n\n"
+            "Step 5: Decide ONE of these strategies:\n"
+            "  a) HOLD — momentum is strong, keep riding. Set review_at_pct (when to re-evaluate).\n"
+            "  b) TRAILING — set trailing stop. Specify trailing_pct and trailing_from_pct.\n"
+            "  c) PARTIAL_SELL — sell a portion (e.g. 50%). Specify sell_pct and remaining strategy.\n"
+            "  d) HARD_TP — set hard take-profit at a specific %.\n\n"
+            "Step 6: Write exit_strategy to the trade in journal. Use this exact Python command:\n"
+            "  python3 -c \"\n"
+            "import json\n"
+            "j = json.load(open(os.path.expanduser('~/.hermes/memories/trade-journal.json')))\n"
+            "for t in j['trades']:\n"
+            "  if t['id'] == TRADE_ID and t['status'] == 'open':\n"
+            "    t['exit_strategy'] = {\n"
+            "      'type': 'hold|trailing|partial_sell|hard_tp',\n"
+            "      'trailing_pct': 25,\n"
+            "      'trailing_from_pct': 200,\n"
+            "      'sell_pct': 50,\n"
+            "      'hard_tp_pct': 300,\n"
+            "      'review_at_pct': 300,\n"
+            "      'sl_pct': 20,\n"
+            "      'reason': 'Your reasoning here'\n"
+            "    }\n"
+            "    t['evaluation_pending'] = False\n"
+            "    break\n"
+            "json.dump(j, open(os.path.expanduser('~/.hermes/memories/trade-journal.json'), 'w'), indent=2)\n"
+            "\"\n"
+            "  (Fill in only the fields relevant to your chosen strategy.)\n\n"
+            "Step 7: Report your decision.\n"
+            "  Read evaluation_detail from trading-config.yaml notifications section.\n"
+            "  If 'full': explain your reasoning in 5-10 lines.\n"
+            "  If 'short': one-line summary like 'HOLD #25 ADHD — strong momentum, review at 300%'.\n"
+            "  If notifications.on_evaluation_complete is false: respond [SILENT].\n\n"
+            "IMPORTANT:\n"
+            "- Do NOT execute sells yourself. Only write strategy to journal. Guardian sells.\n"
+            "- For partial_sell: write the sell_pct. Guardian will execute the partial sell.\n"
+            "- Always set sl_pct (minimum stop-loss floor as % profit from entry).\n"
+            "- If you cannot fetch data or analyze: write default strategy from config "
+            "(risk.default_exit_strategy) and note the failure reason."
+        ),
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -208,12 +269,12 @@ def make_job(definition: dict) -> dict:
         "schedule": schedule,
         "schedule_display": schedule.get("display", definition["schedule"]),
         "repeat": {"times": None, "completed": 0},
-        "enabled": True,
-        "state": "scheduled",
-        "paused_at": None,
-        "paused_reason": None,
+        "enabled": not definition.get("paused", False),
+        "state": "paused" if definition.get("paused") else "scheduled",
+        "paused_at": now if definition.get("paused") else None,
+        "paused_reason": "Triggered on-demand by guardian" if definition.get("paused") else None,
         "created_at": now,
-        "next_run_at": compute_next_run(schedule),
+        "next_run_at": None if definition.get("paused") else compute_next_run(schedule),
         "last_run_at": None,
         "last_status": None,
         "last_error": None,

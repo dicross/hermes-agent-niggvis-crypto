@@ -323,6 +323,7 @@ Hermes ma wbudowany cron scheduler. Konfiguracja przez naturalny język:
 | `morning-report` | 8:00 UTC | Raport portfolio + risk status + wczorajsze P&L |
 | `daily-summary` | 23:00 UTC | Podsumowanie dnia + self-learning (learning.py update) |
 | `weekly-recap` | Niedziela 10:00 | Tygodniowa analiza + deep learning review + strategy update |
+| `position-evaluator` | paused | LLM evaluator — triggerowany przez guardian przy tier crossing |
 
 ### Setup cron
 
@@ -337,19 +338,21 @@ python3 custom-files/setup-cron.py
 uv pip install croniter
 ```
 
-### Position Guardian (real-time SL/TP/BE)
+### Position Guardian (real-time tiered exit)
 
 Guardian to lekki monitor cen (BEZ LLM). Sprawdza pozycje w pętli z adaptacyjnym
-interwałem (idle/active/hot). Każdy tick = fetch cen (1 batch API call) + SL/TP check + render.
+interwałem (idle/active/hot). Każdy tick = fetch cen (1 batch API call) + tier check + render.
 Funkcje:
-- **Stop-loss** — zamyka gdy P&L ≤ SL%
-- **Take-profit** — zamyka powyżej TP% (z trailing stop opcjonalnie)
-- **Break-even SL** — przesuwa SL na 0% gdy pozycja osiągnie +50% (konfigurowalny)
-- **Trailing stop** — po osiągnięciu TP%, śledzi peak i zamyka na pullbacku
+- **Tiered exit** — przetwarza tiery mechanicznie (ratchet SL w górę), trigger LLM na evaluate
+- **Stop-loss** — zamyka gdy P&L ≤ effective SL (max z base SL, tier SL, strategy SL)
+- **LLM evaluator** — triggeruje cron job `position-evaluator` na tier crossing
+- **Exit strategy** — czyta `exit_strategy` z journal (hold/trailing/partial sell/hard TP)
+- **Trailing stop** — po strategii trailing, śledzi peak i zamyka na pullbacku
+- **Partial sell** — sprzedaje X% pozycji (LLM decyduje), resztę trzyma
 - **Wallet sync** — co 5 min (konfigurowalny) sprawdza on-chain balanse, zamyka orphany
-- **Telegram** — powiadamia o każdym sell (SL/TP/trailing/BE/kill)
+- **Telegram** — powiadamia o tier triggers, evaluation results, sells
 - **Kill switch** — awaryjne zamknięcie wszystkiego
-- **Dashboard TUI** — wallet balance, pozycje z cenami, inline alerty
+- **Dashboard TUI** — wallet balance, pozycje z cenami, tier status, strategie
 
 ```bash
 # Start (w tle, screen/tmux) — adaptacyjny interwał
@@ -486,14 +489,39 @@ python3 custom-files/scripts/cron_viewer.py --tail 50
 | Max trade size | 0.5 SOL | `position_sizing.max_trade_sol` |
 | Position sizing | 5% | `position_sizing.position_pct` — % walleta na trade |
 | Max open positions | 5 | `position_sizing.max_positions` |
-| Stop-loss | -30% | `risk.stop_loss_pct` — per trade, nie portfolio |
-| Take-profit | +100% | `risk.take_profit_pct` — min % zysku do zamknięcia |
-| Trailing stop | 15% | `risk.trailing_stop_pct` — pullback od peaku |
-| Break-even trigger | +50% | `risk.breakeven_trigger_pct` — SL→0% po osiągnięciu |
-| Re-buy cooldown | 120 min | `risk.rebuy_cooldown_minutes` — blokada re-buy po zamknięciu |
+| Stop-loss (base) | -30% | `risk.stop_loss_pct` — per trade, zawsze aktywny |
+| Re-buy cooldown | 240 min | `risk.rebuy_cooldown_minutes` — blokada re-buy po zamknięciu |
 | Daily loss limit | -20% | `risk.daily_loss_limit_pct` — suma P&L zamkniętych |
 | Min safety score | 60 | `filters.min_safety_score` |
-| Min liquidity | $10K | `filters.min_liquidity_usd` |
+| Min liquidity | $15K | `filters.min_liquidity_usd` |
+
+### Tiered Exit System (w trading-config.yaml → risk.exit_tiers)
+
+Guardian przetwarza tiery mechanicznie — ratchet SL w górę, nigdy w dół.
+Na tierze z `action: evaluate` triggeruje LLM cron job, który analizuje pozycję
+i pisze strategię do journal.
+
+| Tier | Trigger | Akcja | SL floor |
+|------|---------|-------|----------|
+| 1 | +50% | `move_sl` — break-even | 0% (entry) |
+| 2 | +100% | `evaluate` — trigger LLM | +20% |
+
+**Strategie LLM** (zapisywane w journal → `exit_strategy`):
+- `hold` — trzymaj, re-evaluate przy wyższym P&L
+- `trailing` — trailing stop z określonym % i progiem aktywacji
+- `partial_sell` — sprzedaj X% pozycji, resztę trzymaj z nową strategią
+- `hard_tp` — twardy take-profit przy określonym %
+
+**Fallback**: jeśli LLM timeout (5 min) → trailing 25% od 200%
+
+**Config keys**:
+- `risk.exit_tiers` — lista tierów
+- `risk.default_exit_strategy` — fallback
+- `risk.evaluation_timeout_minutes` — timeout LLM
+- `risk.evaluator_cron_job_name` — nazwa cron joba
+- `notifications.on_tier_triggered` — alert na Telegram
+- `notifications.on_evaluation_complete` — wynik evaluacji
+- `notifications.evaluation_detail` — `full` / `short`
 
 ### Rugpull Red Flags (agent sprawdza automatycznie)
 

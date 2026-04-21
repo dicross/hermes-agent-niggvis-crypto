@@ -219,17 +219,20 @@ Skrypt kopiuje 5 skilli + trading-config.yaml do `~/.hermes/`.
 
 ### 4.11 Konfiguracja notyfikacji Telegram (guardian)
 
-Guardian wysyła powiadomienia o SL/TP/trailing/BE bezpośrednio przez Telegram Bot API.
+Guardian wysyła powiadomienia o tier triggers, exit strategy results, SL/TP bezpośrednio przez Telegram Bot API.
 Token bota i chat_id czyta z `~/.hermes/gateway.json` (konfigurowany przez `hermes gateway setup`).
 
 Ustaw w `~/.hermes/memories/trading-config.yaml` które notyfikacje chcesz:
 ```yaml
 notifications:
   on_stop_loss: true              # 🚨 Stop loss
-  on_take_profit: true            # 🎯 Take profit
+  on_take_profit: true            # 🎯 Take profit / hard TP
   on_trailing_stop: true          # 📉 Trailing stop
-  on_breakeven_activated: true    # 🔒 Break-even SL activated
   on_kill_switch: true            # 🔴 Kill switch
+  on_tier_triggered: true         # 🔒 Tier crossing (SL ratchet)
+  on_evaluation_complete: true    # 🧠 LLM evaluator result
+  evaluation_detail: full         # full = reasoning, short = one-liner
+  on_breakeven_activated: true    # 🔒 Break-even (legacy mode)
   on_wallet_sync: true            # 🔄 Orphan position closed
   on_buy: true                    # ✅ New buy executed
   require_config_approval: true   # Agent prosi o OK przed config change

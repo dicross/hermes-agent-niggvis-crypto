@@ -54,6 +54,8 @@ GUARDIAN_LOG = os.path.expanduser("~/.hermes/cron/guardian.log")
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com"
 SKILLS_DIR = os.path.expanduser("~/.hermes/skills")
+PENDING_EVALUATION_PATH = os.path.expanduser("~/.hermes/cron/pending-evaluation.json")
+CRON_JOBS_PATH = os.path.expanduser("~/.hermes/cron/jobs.json")
 
 # ---------------------------------------------------------------------------
 # Lock (prevent overlapping runs)
@@ -230,9 +232,23 @@ def _render_tui():
             pnl = s.get("pnl_pct", 0)
             trailing = s.get("trailing_active", False)
             be = s.get("breakeven_active", False)
+            eval_pending = s.get("evaluation_pending", False)
+            strat_type = s.get("exit_strategy_type")
+            strat_detail = s.get("exit_strategy_detail", "")
+            tiers = s.get("tiers_triggered", [])
+            eff_sl = s.get("effective_sl", -30)
 
             # Status icon
-            icon = "🚀" if trailing else ("🟢" if pnl >= 0 else "🔴")
+            if eval_pending:
+                icon = "🧠"
+            elif trailing:
+                icon = "🚀"
+            elif strat_type == "hold":
+                icon = "💎"
+            elif pnl >= 0:
+                icon = "🟢"
+            else:
+                icon = "🔴"
 
             token = s.get("token", "?")
             amount_sol = s.get("amount_sol", 0)
@@ -247,9 +263,21 @@ def _render_tui():
             print(f"     {addr}")
             print(f"     • {entry_p} → {curr_p}{mcap_str}")
 
-            # Inline position alerts
-            if be:
+            # Tier & strategy status
+            if tiers:
+                sl_label = "entry" if eff_sl == 0 else (f"+{eff_sl}%" if eff_sl > 0 else f"{eff_sl}%")
+                tier_str = "/".join(f"{int(t)}%" for t in sorted(tiers))
+                print(f"     🔒 Tiers: {tier_str} │ SL floor: {sl_label}")
+
+            if eval_pending:
+                print(f"     ⏳ LLM evaluation in progress...")
+            elif strat_detail:
+                strat_icons = {"trailing": "📈", "hold": "💎", "hard_tp": "🎯", "partial_sell": "✂️"}
+                si = strat_icons.get(strat_type, "📊")
+                print(f"     {si} Strategy: {strat_detail}")
+            elif be and not tiers:
                 print(f"     🔒 Break-even active (SL → entry price)")
+
             if trailing:
                 peak = s.get("peak_pnl", 0)
                 trail_rem = s.get("trail_remaining", 0)
@@ -665,10 +693,12 @@ def load_json(path: str) -> dict:
 
 
 def _parse_yaml_flat(path: str) -> dict:
-    """Minimal YAML parser for trading config."""
+    """Minimal YAML parser for trading config (supports nested dicts + lists)."""
     if not os.path.exists(path):
         return {}
     result = {}
+    # stack items: (indent, container)
+    # container is dict or list
     stack = [(0, result)]
     with open(path) as f:
         for line in f:
@@ -677,6 +707,45 @@ def _parse_yaml_flat(path: str) -> dict:
                 continue
             indent = len(line) - len(line.lstrip())
             content = stripped.strip()
+ 
+            # --- List item: "- key: val" ---
+            if content.startswith("- "):
+                content = content[2:].strip()
+                # Pop stack to find container at proper indent
+                while len(stack) > 1 and stack[-1][0] >= indent:
+                    stack.pop()
+                parent_indent, parent_container = stack[-1]
+ 
+                # Parent is an empty dict → it was created by "key:" with no value.
+                # Convert it to a list in the grandparent dict.
+                if isinstance(parent_container, dict) and len(parent_container) == 0 and len(stack) >= 2:
+                    _, grandparent = stack[-2]
+                    if isinstance(grandparent, dict):
+                        for k, v in grandparent.items():
+                            if v is parent_container:
+                                grandparent[k] = []
+                                parent_container = grandparent[k]
+                                stack[-1] = (parent_indent, parent_container)
+                                break
+ 
+                if not isinstance(parent_container, list):
+                    continue
+ 
+                # Create new list item dict
+                item = {}
+                parent_container.append(item)
+                if ":" in content:
+                    key, _, val = content.partition(":")
+                    key = key.strip()
+                    val = val.strip()
+                    if val and val[0] in ('"', "'") and val[-1] == val[0]:
+                        val = val[1:-1]
+                    val = _parse_yaml_value(val)
+                    item[key] = val
+                # Push list item as context for subsequent indented lines
+                stack.append((indent, item))
+                continue
+ 
             if ":" not in content:
                 continue
             key, _, val = content.partition(":")
@@ -686,7 +755,9 @@ def _parse_yaml_flat(path: str) -> dict:
                 val = val[1:-1]
             while len(stack) > 1 and stack[-1][0] >= indent:
                 stack.pop()
-            parent = stack[-1][1]
+            _, parent = stack[-1]
+            if not isinstance(parent, dict):
+                continue
             if val == "" or val == "[]":
                 if val == "[]":
                     parent[key] = []
@@ -695,22 +766,27 @@ def _parse_yaml_flat(path: str) -> dict:
                     parent[key] = child
                     stack.append((indent, child))
             else:
-                if val.lower() == "true":
-                    val = True
-                elif val.lower() == "false":
-                    val = False
-                elif val.lower() in ("null", "none"):
-                    val = None
-                else:
-                    try:
-                        val = int(val)
-                    except ValueError:
-                        try:
-                            val = float(val)
-                        except ValueError:
-                            pass
-                parent[key] = val
+                parent[key] = _parse_yaml_value(val)
     return result
+
+
+def _parse_yaml_value(val):
+    """Convert a YAML scalar string to a Python value."""
+    if isinstance(val, str):
+        if val.lower() == "true":
+            return True
+        if val.lower() == "false":
+            return False
+        if val.lower() in ("null", "none"):
+            return None
+        try:
+            return int(val)
+        except ValueError:
+            try:
+                return float(val)
+            except ValueError:
+                return val
+    return val
 
 
 def _cfg(cfg: dict, *keys, default=None):
@@ -737,7 +813,7 @@ def save_json(path: str, data: dict):
 # ---------------------------------------------------------------------------
 
 
-def _execute_jupiter_sell(address: str) -> bool:
+def _execute_jupiter_sell(address: str, pct: int = 100) -> bool:
     """Execute real sell via Jupiter. Returns True if successful."""
     jupiter_script = os.path.join(SKILLS_DIR, "trade-executor", "scripts", "jupiter_swap.py")
     if not os.path.exists(jupiter_script):
@@ -752,11 +828,11 @@ def _execute_jupiter_sell(address: str) -> bool:
         if not os.path.exists(python_bin):
             python_bin = sys.executable
         result = subprocess.run(
-            [python_bin, jupiter_script, "sell", "--token", address, "--pct", "100"],
+            [python_bin, jupiter_script, "sell", "--token", address, "--pct", str(pct)],
             capture_output=True, text=True, timeout=60
         )
         if "Success" in result.stdout:
-            log(f"  🔗 Jupiter sell executed")
+            log(f"  🔗 Jupiter sell executed ({pct}%)")
             return True
         else:
             log(f"  ⚠️ Jupiter sell may have failed: {result.stdout[-200:]}")
@@ -766,8 +842,85 @@ def _execute_jupiter_sell(address: str) -> bool:
         return False
 
 
+def _close_trade(t: dict, price: float, pnl_pct: float, reason: str, mode: str) -> dict:
+    """Mark trade as closed in journal. Returns action dict."""
+    t["status"] = "closed"
+    t["exit_price"] = price
+    t["exit_time"] = _now_local_iso()
+    t["exit_reason"] = reason
+    t["pnl_pct"] = round(pnl_pct, 2)
+    t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
+    return {"id": t["id"], "pnl": pnl_pct, "pnl_sol": t["pnl_sol"]}
+
+
+def _find_evaluator_cron_id(job_name: str) -> str | None:
+    """Find cron job ID by name from jobs.json."""
+    if not os.path.exists(CRON_JOBS_PATH):
+        return None
+    try:
+        with open(CRON_JOBS_PATH) as f:
+            data = json.load(f)
+        jobs = data.get("jobs", []) if isinstance(data, dict) else data
+        for j in jobs:
+            if j.get("name") == job_name:
+                return j.get("id")
+    except Exception:
+        pass
+    return None
+
+
+def _trigger_evaluation(trade_id: int, trade: dict, tcfg: dict):
+    """Trigger the LLM position evaluator cron job for a trade.
+
+    Writes pending-evaluation.json with trade context, then runs
+    'hermes cron run <job_id>' as a non-blocking subprocess.
+    """
+    # Write pending evaluation file for the cron job to read
+    pending = {
+        "trade_id": trade_id,
+        "token": trade.get("token", "?"),
+        "address": trade.get("address", ""),
+        "entry_price": trade.get("entry_price"),
+        "amount_sol": trade.get("amount_sol"),
+        "requested_at": _now_local_iso(),
+    }
+    os.makedirs(os.path.dirname(PENDING_EVALUATION_PATH), exist_ok=True)
+    tmp = PENDING_EVALUATION_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(pending, f, indent=2, default=str)
+    os.replace(tmp, PENDING_EVALUATION_PATH)
+ 
+    # Find the evaluator cron job ID
+    job_name = _cfg(tcfg, "risk", "evaluator_cron_job_name", default="position-evaluator")
+    job_id = _find_evaluator_cron_id(job_name)
+    if not job_id:
+        log(f"  ⚠️ Cron job '{job_name}' not found — cannot trigger evaluation", alert=True)
+        return
+ 
+    # Trigger the cron job (non-blocking)
+    try:
+        hermes_bin = shutil.which("hermes")
+        if not hermes_bin:
+            hermes_bin = os.path.expanduser("~/.local/bin/hermes")
+        subprocess.Popen(
+            [hermes_bin, "cron", "run", job_id],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        log(f"  🧠 Triggered evaluator for #{trade_id} {trade.get('token', '?')}", alert=True)
+    except Exception as e:
+        log(f"  ❌ Failed to trigger evaluator: {e}", alert=True)
+
+
 def check_positions(dry_run: bool = False) -> list:
-    """Check all open positions. Returns list of actions taken."""
+    """Check all open positions against tiered exit strategy.
+
+    Tiered exit system (when exit_tiers present in config):
+      1. Process tiers: ratchet SL up, trigger LLM evaluation
+      2. Execute exit_strategy written by evaluator (trailing/hold/partial_sell/hard_tp)
+      3. Check SL (effective = max of base SL, tier SL, strategy SL)
+
+    Falls back to legacy TP/trailing/BE when exit_tiers is absent.
+    """
     global _last_pnl_cache, _position_states, _num_open
     _last_pnl_cache = {}
     _position_states = {}
@@ -782,13 +935,23 @@ def check_positions(dry_run: bool = False) -> list:
     if not open_trades:
         return []
 
-    sl_pct = _cfg(tcfg, "risk", "stop_loss_pct", default=-30)
-    tp_pct = _cfg(tcfg, "risk", "take_profit_pct", default=100)
-    trail_pct = float(_cfg(tcfg, "risk", "trailing_stop_pct", default=0))
+    base_sl = float(_cfg(tcfg, "risk", "stop_loss_pct", default=-30))
     kill = _cfg(tcfg, "risk", "kill_switch", default=False)
     mode = _cfg(tcfg, "mode", default="paper")
-    # Break-even: move SL to 0% when position reaches this profit %
-    be_trigger = float(_cfg(tcfg, "risk", "breakeven_trigger_pct", default=0))
+
+    # Tiered exit config
+    exit_tiers_raw = _cfg(tcfg, "risk", "exit_tiers", default=None)
+    use_tiers = isinstance(exit_tiers_raw, list) and len(exit_tiers_raw) > 0
+
+    if use_tiers:
+        exit_tiers = sorted(exit_tiers_raw, key=lambda x: float(x.get("trigger_pct", 0)))
+        default_strat = _cfg(tcfg, "risk", "default_exit_strategy") or {}
+        eval_timeout = float(_cfg(tcfg, "risk", "evaluation_timeout_minutes", default=5))
+    else:
+        # Legacy mode — read old fields
+        tp_pct = float(_cfg(tcfg, "risk", "take_profit_pct", default=100))
+        trail_pct = float(_cfg(tcfg, "risk", "trailing_stop_pct", default=0))
+        be_trigger = float(_cfg(tcfg, "risk", "breakeven_trigger_pct", default=0))
 
     actions = []
     journal_dirty = False
@@ -808,173 +971,380 @@ def check_positions(dry_run: bool = False) -> list:
             continue
 
         pnl_pct = ((price - entry) / entry) * 100
+        token_name = t.get("token", "?")
+        tid = t["id"]
 
-        # Cache for adaptive interval (no extra API calls)
-        _last_pnl_cache[t["id"]] = pnl_pct
+        # Track peak P&L (always, regardless of mode)
+        peak = float(t.get("peak_pnl_pct", 0))
+        if pnl_pct > peak:
+            t["peak_pnl_pct"] = round(pnl_pct, 2)
+            peak = pnl_pct
+            journal_dirty = True
 
-        # Populate TUI state
+        # Cache for adaptive interval
+        _last_pnl_cache[tid] = pnl_pct
+
+        # TUI state base
         mcap = _price_cache.get(addr, {}).get("market_cap", 0) if _price_cache else 0
-        _position_states[t["id"]] = {
-            "token": t.get("token", "?"),
+        _position_states[tid] = {
+            "token": token_name,
             "address": addr,
             "amount_sol": float(t.get("amount_sol", 0)),
             "entry_price": entry,
             "current_price": price,
             "pnl_pct": pnl_pct,
             "market_cap": mcap,
-            "breakeven_active": bool(t.get("breakeven_active")),
+            "peak_pnl": peak,
+            "effective_sl": base_sl,
+            # Tier-specific (populated below)
+            "tiers_triggered": [],
+            "exit_strategy_type": None,
+            "exit_strategy_detail": "",
+            "evaluation_pending": False,
             "trailing_active": False,
-            "peak_pnl": float(t.get("peak_pnl_pct", 0)),
             "trail_remaining": 0.0,
-            "effective_sl": sl_pct,
+            "breakeven_active": False,
         }
 
-        # Break-even SL: if position ever exceeded be_trigger, effective SL = 0%
-        effective_sl = sl_pct
-        if be_trigger > 0:
-            # If breakeven was already activated (persisted in journal), honour it
-            if t.get("breakeven_active"):
-                effective_sl = 0
-                _position_states[t["id"]]["breakeven_active"] = True
-                _position_states[t["id"]]["effective_sl"] = 0
-            # Newly reaching the trigger
-            peak = float(t.get("peak_pnl_pct", 0))
-            if peak >= be_trigger or pnl_pct >= be_trigger:
-                effective_sl = 0
-                # Mark that BE was activated (for logging)
-                if not t.get("breakeven_active"):
-                    t["breakeven_active"] = True
-                    journal_dirty = True
-                    log(f"  🔒 #{t['id']} {t.get('token', '?')}: break-even SL activated (hit {be_trigger}%+)", alert=True)
-                    notify_telegram(
-                        f"🔒 *Break-even SL activated*\n"
-                        f"#{t['id']} {t.get('token', '?')}: hit {pnl_pct:+.1f}% (trigger: {be_trigger}%)\n"
-                        f"SL moved from {sl_pct}% → 0% (entry price)",
-                        event="on_breakeven_activated",
-                    )
-                # Update TUI state
-                _position_states[t["id"]]["breakeven_active"] = True
-                _position_states[t["id"]]["effective_sl"] = 0
-
-        # Update effective SL in TUI state
-        _position_states[t["id"]]["effective_sl"] = effective_sl
-
-        # Stop-loss check (using effective SL — may be 0% if BE activated)
-        if pnl_pct <= effective_sl:
-            sl_label = f"BE 0%" if effective_sl == 0 else f"{effective_sl}%"
-            action = f"STOP_LOSS #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit {sl_label})"
-            log(f"  🚨 {action}", alert=True)
-
+        # ── Kill switch — sell everything ──
+        if kill:
+            log(f"  🔴 KILL SWITCH — closing #{tid} {token_name}", alert=True)
             if not dry_run:
-                # Real mode: execute Jupiter sell first
                 if mode == "real":
                     _execute_jupiter_sell(addr)
-                # Close trade in journal
-                t["status"] = "closed"
-                t["exit_price"] = price
-                t["exit_time"] = _now_local_iso()
-                t["exit_reason"] = f"Guardian auto-stop-loss ({pnl_pct:.1f}%)"
-                t["pnl_pct"] = round(pnl_pct, 2)
-                t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)", alert=True)
+                info = _close_trade(t, price, pnl_pct,
+                    f"Kill switch ({_cfg(tcfg, 'risk', 'kill_reason', default='manual')})", mode)
                 notify_telegram(
-                    f"🚨 *STOP LOSS* — #{t['id']} {t.get('token', '?')}\n"
-                    f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
-                    f"Entry: ${entry} → Exit: ${price}",
-                    event="on_stop_loss",
+                    f"🔴 *KILL SWITCH* — #{tid} {token_name}\n"
+                    f"P&L: {pnl_pct:+.1f}% ({info['pnl_sol']:+.6f} SOL)",
+                    event="on_kill_switch",
+                )
+            actions.append({"type": "KILL", "id": tid, "pnl": pnl_pct})
+            continue
+
+        if use_tiers:
+            # ══════════════════════════════════════════════════════════════
+            # TIERED EXIT SYSTEM
+            # ══════════════════════════════════════════════════════════════
+            tiers_triggered = list(t.get("tiers_triggered", []))
+            effective_sl = float(t.get("effective_sl_pct", base_sl))
+            eval_pending = t.get("evaluation_pending", False)
+            eval_requested = t.get("evaluation_requested_at")
+
+            # ── 1. Process tiers ──
+            for tier in exit_tiers:
+                trigger = float(tier.get("trigger_pct", 0))
+                if trigger in tiers_triggered:
+                    continue
+                if pnl_pct < trigger:
+                    continue
+                # Tier crossed!
+                tiers_triggered.append(trigger)
+                new_sl = float(tier.get("new_sl_pct", 0))
+                action_type = tier.get("action", "move_sl")
+                effective_sl = max(effective_sl, new_sl)
+
+                sl_label = "entry price" if new_sl == 0 else f"+{new_sl}%"
+                log(f"  🔒 #{tid} {token_name}: Tier {trigger}% — SL → {sl_label}", alert=True)
+                notify_telegram(
+                    f"🔒 *Tier {trigger}% reached* — #{tid} {token_name}\n"
+                    f"P&L: {pnl_pct:+.1f}% │ SL → {sl_label}",
+                    event="on_tier_triggered",
                 )
 
-            actions.append({"type": "STOP_LOSS", "id": t["id"], "pnl": pnl_pct})
+                # Trigger LLM evaluation if configured
+                if action_type == "evaluate" and not eval_pending:
+                    t["evaluation_pending"] = True
+                    t["evaluation_requested_at"] = _now_local_iso()
+                    eval_pending = True
+                    eval_requested = t["evaluation_requested_at"]
+                    if not dry_run:
+                        _trigger_evaluation(tid, t, tcfg)
+                    else:
+                        log(f"  🧠 [DRY-RUN] Would trigger evaluator for #{tid}")
 
-        # Take-profit / trailing stop check
-        elif pnl_pct >= tp_pct:
-            # Trailing stop enabled: track peak and sell on pullback
-            if trail_pct > 0:
-                peak = float(t.get("peak_pnl_pct", 0))
-                # Update peak if current P&L is higher
-                if pnl_pct > peak:
-                    t["peak_pnl_pct"] = round(pnl_pct, 2)
-                    peak = pnl_pct
-                    journal_dirty = True
-                 
-                drop_from_peak = peak - pnl_pct
-                if drop_from_peak >= trail_pct:
-                    # Trailing stop triggered — sell
-                    action = f"TRAILING_STOP #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (peak {peak:+.1f}%, trail -{trail_pct}%)"
-                    log(f"  📉 {action}", alert=True)
+                journal_dirty = True
+
+            # Persist tier state
+            t["tiers_triggered"] = tiers_triggered
+            t["effective_sl_pct"] = effective_sl
+
+            # ── 2. Check evaluation timeout ──
+            if eval_pending and eval_requested:
+                try:
+                    req_dt = datetime.fromisoformat(eval_requested)
+                    elapsed = (_local_now() - req_dt).total_seconds() / 60
+                    if elapsed > eval_timeout:
+                        log(f"  ⏰ #{tid} {token_name}: Evaluation timeout ({elapsed:.0f}m) — applying default strategy", alert=True)
+                        t["exit_strategy"] = {
+                            "type": str(default_strat.get("type", "trailing")),
+                            "trailing_pct": float(default_strat.get("trailing_pct", 25)),
+                            "trailing_from_pct": float(default_strat.get("trailing_from_pct", 200)),
+                            "sl_pct": effective_sl,
+                            "reason": f"Default — evaluator timeout ({elapsed:.0f}m)",
+                        }
+                        t["evaluation_pending"] = False
+                        eval_pending = False
+                        journal_dirty = True
+                        notify_telegram(
+                            f"⏰ *Evaluator timeout* — #{tid} {token_name}\n"
+                            f"Applied default: trailing {default_strat.get('trailing_pct', 25)}% "
+                            f"from {default_strat.get('trailing_from_pct', 200)}%",
+                            event="on_evaluation_complete",
+                        )
+                except Exception:
+                    pass
+
+            # ── 3. Execute exit strategy (written by LLM evaluator) ──
+            strat = t.get("exit_strategy")
+            if strat and isinstance(strat, dict):
+                stype = strat.get("type", "")
+                strat_sl = float(strat.get("sl_pct", 0))
+                effective_sl = max(effective_sl, strat_sl)
+                t["effective_sl_pct"] = effective_sl
+
+                if stype == "trailing":
+                    trail_pct_s = float(strat.get("trailing_pct", 25))
+                    trail_from = float(strat.get("trailing_from_pct", 200))
+
+                    if pnl_pct >= trail_from:
+                        # Active trailing zone
+                        drop = peak - pnl_pct
+                        if drop >= trail_pct_s:
+                            # Trailing stop triggered
+                            reason = f"Tiered trailing-stop (peak {peak:.1f}%, drop {drop:.1f}%, trail {trail_pct_s}%)"
+                            log(f"  📉 #{tid} {token_name}: {reason}", alert=True)
+                            if not dry_run:
+                                if mode == "real":
+                                    _execute_jupiter_sell(addr)
+                                info = _close_trade(t, price, pnl_pct, f"Guardian {reason}", mode)
+                                log(f"  ✅ Closed #{tid} — P&L: {pnl_pct:+.1f}% (peak {peak:+.1f}%)", alert=True)
+                                notify_telegram(
+                                    f"📉 *TRAILING STOP* — #{tid} {token_name}\n"
+                                    f"P&L: {pnl_pct:+.1f}% (peak: {peak:+.1f}%)\n"
+                                    f"Entry: ${entry} → Exit: ${price}\n"
+                                    f"Profit: {info['pnl_sol']:+.6f} SOL\n"
+                                    f"Strategy: {strat.get('reason', 'LLM evaluator')}",
+                                    event="on_trailing_stop",
+                                )
+                            actions.append({"type": "TRAILING_STOP", "id": tid, "pnl": pnl_pct, "peak": peak})
+                            continue
+                        else:
+                            _position_states[tid].update({
+                                "trailing_active": True,
+                                "trail_remaining": trail_pct_s - drop,
+                            })
+                            log(f"  🚀 #{tid} {token_name}: {pnl_pct:+.1f}% trailing (peak {peak:+.1f}%, trigger in {trail_pct_s - drop:.1f}%)")
+                    else:
+                        log(f"  📊 #{tid} {token_name}: {pnl_pct:+.1f}% (trailing arms at {trail_from}%)")
+
+                    _position_states[tid]["exit_strategy_type"] = "trailing"
+                    _position_states[tid]["exit_strategy_detail"] = f"trail {trail_pct_s}%↓ from {trail_from}%"
+
+                elif stype == "hard_tp":
+                    hard_tp = float(strat.get("hard_tp_pct", 300))
+                    if pnl_pct >= hard_tp:
+                        reason = f"Hard TP at {hard_tp}%"
+                        log(f"  🎯 #{tid} {token_name}: {reason}", alert=True)
+                        if not dry_run:
+                            if mode == "real":
+                                _execute_jupiter_sell(addr)
+                            info = _close_trade(t, price, pnl_pct, f"Guardian {reason}", mode)
+                            log(f"  ✅ Closed #{tid} — P&L: {pnl_pct:+.1f}%", alert=True)
+                            notify_telegram(
+                                f"🎯 *HARD TP* — #{tid} {token_name}\n"
+                                f"P&L: {pnl_pct:+.1f}% (target: {hard_tp}%)\n"
+                                f"Profit: {info['pnl_sol']:+.6f} SOL",
+                                event="on_take_profit",
+                            )
+                        actions.append({"type": "HARD_TP", "id": tid, "pnl": pnl_pct})
+                        continue
+                    _position_states[tid]["exit_strategy_type"] = "hard_tp"
+                    _position_states[tid]["exit_strategy_detail"] = f"TP@{hard_tp}%"
+
+                elif stype == "hold":
+                    review_at = float(strat.get("review_at_pct", 300))
+                    if pnl_pct >= review_at and not eval_pending:
+                        # Re-evaluate at higher level
+                        log(f"  🔄 #{tid} {token_name}: Reached review target {review_at}% — re-evaluating", alert=True)
+                        t["evaluation_pending"] = True
+                        t["evaluation_requested_at"] = _now_local_iso()
+                        # Clear old strategy so evaluator sets a new one
+                        t["exit_strategy"] = None
+                        journal_dirty = True
+                        if not dry_run:
+                            _trigger_evaluation(tid, t, tcfg)
+                    _position_states[tid]["exit_strategy_type"] = "hold"
+                    _position_states[tid]["exit_strategy_detail"] = f"hold→{review_at}%"
+
+                elif stype == "partial_sell":
+                    sell_pct = int(strat.get("sell_pct", 50))
+                    if not t.get("partial_sell_done"):
+                        log(f"  ✂️ #{tid} {token_name}: Partial sell {sell_pct}%", alert=True)
+                        if not dry_run:
+                            if mode == "real":
+                                _execute_jupiter_sell(addr, pct=sell_pct)
+                            # Update position size in journal
+                            old_amount = float(t.get("amount_sol", 0))
+                            sold_amount = old_amount * (sell_pct / 100)
+                            t["amount_sol"] = round(old_amount - sold_amount, 6)
+                            t["partial_sell_done"] = True
+                            t["partial_sell_pct"] = sell_pct
+                            t["partial_sell_time"] = _now_local_iso()
+                            t["partial_sell_pnl_pct"] = round(pnl_pct, 2)
+                            journal_dirty = True
+                            # Apply remaining strategy if specified
+                            remaining = strat.get("remaining_strategy")
+                            if remaining and isinstance(remaining, dict):
+                                t["exit_strategy"] = remaining
+                            else:
+                                # After partial sell, default to trailing on remainder
+                                t["exit_strategy"] = {
+                                    "type": "trailing",
+                                    "trailing_pct": float(strat.get("trailing_pct", 25)),
+                                    "trailing_from_pct": pnl_pct,
+                                    "sl_pct": effective_sl,
+                                    "reason": f"Remainder after {sell_pct}% partial sell",
+                                }
+                            notify_telegram(
+                                f"✂️ *PARTIAL SELL {sell_pct}%* — #{tid} {token_name}\n"
+                                f"P&L: {pnl_pct:+.1f}% │ Sold: {sold_amount:.4f} SOL\n"
+                                f"Remaining: {t['amount_sol']:.4f} SOL",
+                                event="on_trailing_stop",
+                            )
+                        actions.append({"type": "PARTIAL_SELL", "id": tid, "pnl": pnl_pct, "sell_pct": sell_pct})
+                    _position_states[tid]["exit_strategy_type"] = "partial_sell"
+                    _position_states[tid]["exit_strategy_detail"] = f"sold {sell_pct}%"
+
+            elif eval_pending:
+                _position_states[tid]["evaluation_pending"] = True
+                _position_states[tid]["exit_strategy_detail"] = "⏳ evaluating..."
+                log(f"  ⏳ #{tid} {token_name}: {pnl_pct:+.1f}% (evaluation pending)")
+
+            else:
+                # No strategy yet, no evaluation — just log
+                icon = "🟢" if pnl_pct >= 0 else "🔴"
+                log(f"  {icon} #{tid} {token_name}: {pnl_pct:+.1f}%")
+
+            # ── 4. Stop-loss check (effective SL — max of base, tier, strategy) ──
+            # effective_sl is positive for profit-floor (e.g. +20%) or 0 for BE,
+            # base_sl is negative (e.g. -30%)
+            if t.get("status") != "closed":
+                sl_floor = effective_sl if effective_sl > base_sl else base_sl
+                if pnl_pct <= sl_floor:
+                    if sl_floor >= 0:
+                        sl_label = "entry price" if sl_floor == 0 else f"+{sl_floor}%"
+                    else:
+                        sl_label = f"{sl_floor}%"
+                    log(f"  🚨 STOP_LOSS #{tid} {token_name}: {pnl_pct:+.1f}% (SL {sl_label})", alert=True)
                     if not dry_run:
                         if mode == "real":
                             _execute_jupiter_sell(addr)
-                        t["status"] = "closed"
-                        t["exit_price"] = price
-                        t["exit_time"] = _now_local_iso()
-                        t["exit_reason"] = f"Guardian trailing-stop (peak {peak:.1f}%, drop {drop_from_peak:.1f}%)"
-                        t["pnl_pct"] = round(pnl_pct, 2)
-                        t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                        log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% (peak was {peak:+.1f}%)", alert=True)
+                        info = _close_trade(t, price, pnl_pct,
+                            f"Guardian tiered-SL ({pnl_pct:.1f}%, floor {sl_label})", mode)
+                        log(f"  ✅ Closed #{tid} — P&L: {pnl_pct:+.1f}% ({info['pnl_sol']:+.6f} SOL)", alert=True)
                         notify_telegram(
-                            f"📉 *TRAILING STOP* — #{t['id']} {t.get('token', '?')}\n"
-                            f"P&L: {pnl_pct:+.1f}% (peak: {peak:+.1f}%)\n"
-                            f"Entry: ${entry} → Exit: ${price}\n"
-                            f"Profit: {t['pnl_sol']:+.6f} SOL",
-                            event="on_trailing_stop",
+                            f"🚨 *STOP LOSS* — #{tid} {token_name}\n"
+                            f"P&L: {pnl_pct:+.1f}% ({info['pnl_sol']:+.6f} SOL)\n"
+                            f"SL floor: {sl_label}\n"
+                            f"Entry: ${entry} → Exit: ${price}",
+                            event="on_stop_loss",
                         )
-                    actions.append({"type": "TRAILING_STOP", "id": t["id"], "pnl": pnl_pct, "peak": peak})
-                else:
-                    # Still riding — update TUI state
-                    _position_states[t["id"]].update({
-                        "trailing_active": True,
-                        "peak_pnl": peak,
-                        "trail_remaining": trail_pct - drop_from_peak,
-                    })
-                    log(f"  🚀 #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (peak {peak:+.1f}%, trail in {trail_pct - drop_from_peak:.1f}%)")
-            else:
-                # No trailing — instant take-profit (old behavior)
-                action = f"TAKE_PROFIT #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}% (limit +{tp_pct}%)"
-                log(f"  🎯 {action}", alert=True)
+                    actions.append({"type": "STOP_LOSS", "id": tid, "pnl": pnl_pct})
+
+            # Update TUI state
+            _position_states[tid]["effective_sl"] = effective_sl if effective_sl > base_sl else base_sl
+            _position_states[tid]["tiers_triggered"] = tiers_triggered
+            _position_states[tid]["peak_pnl"] = peak
+            _position_states[tid]["breakeven_active"] = 0 in tiers_triggered or effective_sl == 0
+
+        else:
+            # ══════════════════════════════════════════════════════════════
+            # LEGACY MODE (no exit_tiers in config)
+            # ══════════════════════════════════════════════════════════════
+            effective_sl = base_sl
+
+            # Break-even SL
+            if be_trigger > 0:
+                if t.get("breakeven_active") or peak >= be_trigger or pnl_pct >= be_trigger:
+                    effective_sl = 0
+                    if not t.get("breakeven_active"):
+                        t["breakeven_active"] = True
+                        journal_dirty = True
+                        log(f"  🔒 #{tid} {token_name}: break-even SL activated (hit {be_trigger}%+)", alert=True)
+                        notify_telegram(
+                            f"🔒 *Break-even SL activated*\n"
+                            f"#{tid} {token_name}: hit {pnl_pct:+.1f}% (trigger: {be_trigger}%)\n"
+                            f"SL moved from {base_sl}% → 0% (entry price)",
+                            event="on_breakeven_activated",
+                        )
+                    _position_states[tid]["breakeven_active"] = True
+
+            _position_states[tid]["effective_sl"] = effective_sl
+
+            # Stop-loss
+            if pnl_pct <= effective_sl:
+                sl_label = "BE 0%" if effective_sl == 0 else f"{effective_sl}%"
+                log(f"  🚨 STOP_LOSS #{tid} {token_name}: {pnl_pct:+.1f}% (limit {sl_label})", alert=True)
                 if not dry_run:
                     if mode == "real":
                         _execute_jupiter_sell(addr)
-                    t["status"] = "closed"
-                    t["exit_price"] = price
-                    t["exit_time"] = _now_local_iso()
-                    t["exit_reason"] = f"Guardian auto-take-profit ({pnl_pct:.1f}%)"
-                    t["pnl_pct"] = round(pnl_pct, 2)
-                    t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                    log(f"  ✅ Closed #{t['id']} — P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)", alert=True)
+                    info = _close_trade(t, price, pnl_pct,
+                        f"Guardian auto-stop-loss ({pnl_pct:.1f}%)", mode)
+                    log(f"  ✅ Closed #{tid} — P&L: {pnl_pct:+.1f}% ({info['pnl_sol']:+.6f} SOL)", alert=True)
                     notify_telegram(
-                        f"🎯 *TAKE PROFIT* — #{t['id']} {t.get('token', '?')}\n"
-                        f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)\n"
+                        f"🚨 *STOP LOSS* — #{tid} {token_name}\n"
+                        f"P&L: {pnl_pct:+.1f}% ({info['pnl_sol']:+.6f} SOL)\n"
                         f"Entry: ${entry} → Exit: ${price}",
-                        event="on_take_profit",
+                        event="on_stop_loss",
                     )
-                actions.append({"type": "TAKE_PROFIT", "id": t["id"], "pnl": pnl_pct})
+                actions.append({"type": "STOP_LOSS", "id": tid, "pnl": pnl_pct})
 
-        # Kill switch — sell everything
-        elif kill:
-            log(f"  🔴 KILL SWITCH — closing #{t['id']} {t.get('token', '?')}", alert=True)
-            if not dry_run:
-                if mode == "real":
-                    _execute_jupiter_sell(addr)
-                t["status"] = "closed"
-                t["exit_price"] = price
-                t["exit_time"] = _now_local_iso()
-                t["exit_reason"] = f"Kill switch ({_cfg(tcfg, 'risk', 'kill_reason', default='manual')})"
-                t["pnl_pct"] = round(pnl_pct, 2)
-                t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
-                notify_telegram(
-                    f"🔴 *KILL SWITCH* — #{t['id']} {t.get('token', '?')}\n"
-                    f"P&L: {pnl_pct:+.1f}% ({t['pnl_sol']:+.6f} SOL)",
-                    event="on_kill_switch",
-                )
-            actions.append({"type": "KILL", "id": t["id"], "pnl": pnl_pct})
+            # Take-profit / trailing
+            elif pnl_pct >= tp_pct:
+                if trail_pct > 0:
+                    drop_from_peak = peak - pnl_pct
+                    if drop_from_peak >= trail_pct:
+                        log(f"  📉 TRAILING_STOP #{tid} {token_name}: {pnl_pct:+.1f}% (peak {peak:+.1f}%)", alert=True)
+                        if not dry_run:
+                            if mode == "real":
+                                _execute_jupiter_sell(addr)
+                            info = _close_trade(t, price, pnl_pct,
+                                f"Guardian trailing-stop (peak {peak:.1f}%, drop {drop_from_peak:.1f}%)", mode)
+                            log(f"  ✅ Closed #{tid} — P&L: {pnl_pct:+.1f}%", alert=True)
+                            notify_telegram(
+                                f"📉 *TRAILING STOP* — #{tid} {token_name}\n"
+                                f"P&L: {pnl_pct:+.1f}% (peak: {peak:+.1f}%)\n"
+                                f"Profit: {info['pnl_sol']:+.6f} SOL",
+                                event="on_trailing_stop",
+                            )
+                        actions.append({"type": "TRAILING_STOP", "id": tid, "pnl": pnl_pct, "peak": peak})
+                    else:
+                        _position_states[tid].update({
+                            "trailing_active": True,
+                            "trail_remaining": trail_pct - drop_from_peak,
+                        })
+                        log(f"  🚀 #{tid} {token_name}: {pnl_pct:+.1f}% (peak {peak:+.1f}%, trail in {trail_pct - drop_from_peak:.1f}%)")
+                else:
+                    log(f"  🎯 TAKE_PROFIT #{tid} {token_name}: {pnl_pct:+.1f}%", alert=True)
+                    if not dry_run:
+                        if mode == "real":
+                            _execute_jupiter_sell(addr)
+                        info = _close_trade(t, price, pnl_pct,
+                            f"Guardian auto-take-profit ({pnl_pct:.1f}%)", mode)
+                        log(f"  ✅ Closed #{tid} — P&L: {pnl_pct:+.1f}%", alert=True)
+                        notify_telegram(
+                            f"🎯 *TAKE PROFIT* — #{tid} {token_name}\n"
+                            f"P&L: {pnl_pct:+.1f}% ({info['pnl_sol']:+.6f} SOL)",
+                            event="on_take_profit",
+                        )
+                    actions.append({"type": "TAKE_PROFIT", "id": tid, "pnl": pnl_pct})
 
-        else:
-            # Normal — just log status
-            icon = "🟢" if pnl_pct >= 0 else "🔴"
-            log(f"  {icon} #{t['id']} {t.get('token', '?')}: {pnl_pct:+.1f}%")
+            else:
+                icon = "🟢" if pnl_pct >= 0 else "🔴"
+                log(f"  {icon} #{tid} {token_name}: {pnl_pct:+.1f}%")
 
-    # Save if any changes (sells or peak_pnl updates)
+    # Save if any changes
     if (actions or journal_dirty) and not dry_run:
         save_json(JOURNAL_PATH, journal)
 
@@ -990,18 +1360,10 @@ _last_pnl_cache: dict = {}  # trade_id -> pnl_pct
 
 
 def _compute_adaptive_interval(tcfg: dict) -> int:
-    """Compute check interval based on open positions and proximity to SL/TP.
+    """Compute check interval based on open positions and proximity to SL/tier thresholds.
 
     Uses cached P&L from the last check_positions run (no extra API calls).
-
-    Reads from trading-config.yaml guardian section:
-      guardian:
-        interval_idle: 120      # No positions open
-        interval_active: 20     # Positions open, normal range
-        interval_hot: 10        # Position near SL or TP threshold
-        hot_zone_pct: 15        # "Near" = within this % of SL or TP
-
-    Returns interval in seconds.
+    In tiered mode, goes hot when near any tier trigger or SL floor.
     """
     idle = int(_cfg(tcfg, "guardian", "interval_idle", default=30))
     active = int(_cfg(tcfg, "guardian", "interval_active", default=5))
@@ -1011,16 +1373,33 @@ def _compute_adaptive_interval(tcfg: dict) -> int:
     if not _last_pnl_cache:
         return idle
 
-    sl_pct = float(_cfg(tcfg, "risk", "stop_loss_pct", default=-30))
-    tp_pct = float(_cfg(tcfg, "risk", "take_profit_pct", default=100))
+    base_sl = float(_cfg(tcfg, "risk", "stop_loss_pct", default=-30))
+    exit_tiers_raw = _cfg(tcfg, "risk", "exit_tiers", default=None)
+    use_tiers = isinstance(exit_tiers_raw, list) and len(exit_tiers_raw) > 0
 
-    for pnl_pct in _last_pnl_cache.values():
-        # Near stop-loss: e.g. SL=-30, hot_zone=15 → hot when pnl <= -15
-        if pnl_pct <= (sl_pct + hot_zone):
+    for tid, pnl_pct in _last_pnl_cache.items():
+        # Near base stop-loss
+        if pnl_pct <= (base_sl + hot_zone):
             return hot
-        # Near take-profit or above: e.g. TP=100, hot_zone=15 → hot when pnl >= 85
-        if pnl_pct >= (tp_pct - hot_zone):
-            return hot
+
+        if use_tiers:
+            # Near any tier trigger or active trailing zone
+            for tier in exit_tiers_raw:
+                trigger = float(tier.get("trigger_pct", 0))
+                if pnl_pct >= (trigger - hot_zone) and pnl_pct <= (trigger + hot_zone):
+                    return hot
+            # Check effective SL from position state
+            ps = _position_states.get(tid)
+            if ps:
+                eff_sl = ps.get("effective_sl", base_sl)
+                if eff_sl > base_sl and pnl_pct <= (eff_sl + hot_zone):
+                    return hot
+                if ps.get("trailing_active"):
+                    return hot
+        else:
+            tp_pct = float(_cfg(tcfg, "risk", "take_profit_pct", default=100))
+            if pnl_pct >= (tp_pct - hot_zone):
+                return hot
 
     return active
 

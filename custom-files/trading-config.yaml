@@ -48,29 +48,50 @@ position_sizing:
 # Risk Management
 # =============================================================================
 risk:
-  # Stop loss: auto-sell if position drops below this %
+  # Base stop loss — always active, even before any tier is reached.
   stop_loss_pct: -30
-  # Take profit: auto-sell if position rises above this %
-  take_profit_pct: 75
-  # Trailing stop: after hitting TP threshold, trail by this %
-  # Set to 0 to disable trailing (instant sell at TP)
-  trailing_stop_pct: 15
-  # Break-even trigger: move SL to 0% (entry price) when profit reaches this %
-  # Set to 0 to disable. Example: 50 = when position hits +50%, SL moves to entry.
-  breakeven_trigger_pct: 50
-  # Daily loss limit: stop trading if portfolio drops this % in a day
+ 
+  # ── Tiered Exit System ──────────────────────────────────────────────────
+  # Replaces old take_profit_pct / trailing_stop_pct / breakeven_trigger_pct.
+  # Guardian processes tiers mechanically (ratchets SL up, never down).
+  # Tiers with action "evaluate" trigger LLM position evaluator (cron job).
+  #
+  # action values:
+  #   move_sl          — move SL floor to new_sl_pct (% profit from entry)
+  #   evaluate         — move SL + trigger LLM evaluation via cron job
+  exit_tiers:
+    - trigger_pct: 50
+      action: move_sl
+      new_sl_pct: 0
+    - trigger_pct: 100
+      action: evaluate
+      new_sl_pct: 20
+ 
+  # Fallback strategy if LLM evaluation fails or times out.
+  # Guardian applies this automatically after evaluation_timeout_minutes.
+  default_exit_strategy:
+    type: trailing
+    trailing_pct: 25
+    trailing_from_pct: 200
+ 
+  # Max time to wait for LLM evaluator before applying default strategy.
+  evaluation_timeout_minutes: 5
+ 
+  # Name of the paused cron job to trigger for position evaluation.
+  # Created by setup-cron.py. Guardian runs: hermes cron run <id>
+  evaluator_cron_job_name: "position-evaluator"
+ 
+  # ── Deprecated (ignored when exit_tiers is present) ─────────────────────
+  # take_profit_pct: 75
+  # trailing_stop_pct: 15
+  # breakeven_trigger_pct: 50
+ 
+  # ── Other risk controls ─────────────────────────────────────────────────
   daily_loss_limit_pct: -20
-  # Weekly loss limit: stop trading entirely
   weekly_loss_limit_pct: -40
-  # Kill switch: emergency stop all trading
   kill_switch: false
   kill_reason: null
-  # Re-buy cooldown: block buying the same token within N minutes of closing
-  # Prevents buying back right after trailing stop / SL (price likely correcting)
-  # Set to 0 to disable.
   rebuy_cooldown_minutes: 240
-  # Dump guard: block buying tokens that dropped more than X% in last 24h/6h.
-  # Catches dead coins, rugpulls, post-pump dumps. Set to 0 to disable.
   max_24h_drop_pct: 60
 
 # =============================================================================
@@ -98,7 +119,7 @@ jupiter:
   api_url: "https://lite-api.jup.ag/swap/v1"
   # Slippage tolerance in basis points (100 = 1%)
   # Memecoins need higher slippage (1500-2500 = 15-25%)
-  slippage_bps: 1500
+  slippage_bps: 500
   # Priority fee in microlamports (higher = faster execution)
   # auto_optimal, auto_high, auto_medium, or exact number
   priority_fee: "auto_optimal"
@@ -142,13 +163,18 @@ notifications:
   on_stop_loss: false
   on_take_profit: true
   on_trailing_stop: true
-  on_breakeven_activated: true
   on_kill_switch: true
-  # --- Wallet sync ---
+  # --- Tiered exit events ---
+  on_tier_triggered: true
+  on_evaluation_complete: true
+  # Detail level for evaluation notifications:
+  #   full  = full LLM reasoning (why it holds/sells)
+  #   short = brief decision ("HOLD #25 ADHD — momentum strong")
+  evaluation_detail: full
+  # --- Other ---
+  on_breakeven_activated: true
   on_wallet_sync: true
-  # --- Agent actions (executor.py) ---
   on_buy: true
-  # --- Config changes ---
   require_config_approval: true
 
 # =============================================================================
