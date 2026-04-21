@@ -40,7 +40,7 @@ position_sizing:
   min_trade_sol: 0.01
   max_trade_sol: 0.5
   # Max number of open positions at once
-  max_positions: 5
+  max_positions: 8
   # Min SOL to keep in wallet (for gas fees + safety buffer)
   min_wallet_balance: 0.01
 
@@ -69,6 +69,9 @@ risk:
   # Prevents buying back right after trailing stop / SL (price likely correcting)
   # Set to 0 to disable.
   rebuy_cooldown_minutes: 240
+  # Dump guard: block buying tokens that dropped more than X% in last 24h/6h.
+  # Catches dead coins, rugpulls, post-pump dumps. Set to 0 to disable.
+  max_24h_drop_pct: 60
 
 # =============================================================================
 # Token Filters (what to buy)
@@ -95,12 +98,20 @@ jupiter:
   api_url: "https://lite-api.jup.ag/swap/v1"
   # Slippage tolerance in basis points (100 = 1%)
   # Memecoins need higher slippage (1500-2500 = 15-25%)
-  slippage_bps: 1500
+  slippage_bps: 500
   # Priority fee in microlamports (higher = faster execution)
   # auto_optimal, auto_high, auto_medium, or exact number
   priority_fee: "auto_optimal"
   # Max priority fee cap in SOL (safety limit)
   max_priority_fee_sol: 0.005
+
+# =============================================================================
+# Timezone
+# =============================================================================
+# All timestamps in journal, logs, and TUI use this timezone.
+# Examples: "Europe/Warsaw", "US/Eastern", "UTC"
+# Leave empty to use system default.
+display_timezone: "Europe/Warsaw"
 
 # =============================================================================
 # Guardian (adaptive price monitor)
@@ -115,6 +126,10 @@ guardian:
   interval_active: 5
   interval_hot: 1
   hot_zone_pct: 15
+  # Wallet sync: compare on-chain balances with journal, close orphans.
+  # WARNING: public Solana RPC may return incomplete data → false closes.
+  # Use private RPC (Helius/QuickNode) before enabling.
+  wallet_sync_enabled: false
   wallet_sync_interval_s: 300
 
 # =============================================================================
