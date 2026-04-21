@@ -344,7 +344,7 @@ def cmd_scan(args):
 
     print(f"\n{'='*60}")
     print(f"  Total: {len(pairs)} tokens | Shown: {min(len(pairs), args.limit)}")
-    print(f"  Scan time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    print(f"  Scan time: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M')}")
 
 
 def cmd_trending(args):

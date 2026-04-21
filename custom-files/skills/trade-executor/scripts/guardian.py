@@ -110,12 +110,32 @@ _dry_run_mode: bool = False
 
 _display_tz = None  # Will be set from config (e.g. "Europe/Warsaw")
 
+
+def _init_display_tz():
+    """Read display_timezone from trading-config.yaml once."""
+    global _display_tz
+    if _display_tz is not None:
+        return
+    try:
+        tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+        tz_name = _cfg(tcfg, "display_timezone", default="")
+        if tz_name:
+            _display_tz = ZoneInfo(tz_name)
+    except Exception:
+        pass
+    if _display_tz is None:
+        _display_tz = datetime.now().astimezone().tzinfo  # system default
+
+
 def _local_now() -> datetime:
     """Return current local time — uses config timezone if set, else system."""
-    global _display_tz
-    if _display_tz:
-        return datetime.now(_display_tz)
-    return datetime.now().astimezone()
+    _init_display_tz()
+    return datetime.now(_display_tz)
+
+
+def _now_local_iso() -> str:
+    """ISO timestamp in local timezone (with offset)."""
+    return _local_now().isoformat()
 
 
 def log(msg: str, alert: bool = False):
@@ -123,7 +143,7 @@ def log(msg: str, alert: bool = False):
     if alert:
         try:
             with open(GUARDIAN_LOG, "a") as f:
-                ts_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                ts_utc = _local_now().strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"[{ts_utc}] {msg}\n")
         except Exception:
             pass
@@ -454,12 +474,15 @@ def _get_token_accounts(wallet_pubkey: str, rpc_url: str) -> dict | None:
 
         any_success = True
         accounts = data.get("result", {}).get("value", [])
+        log(f"    RPC {program_id[:8]}...: {len(accounts)} token account(s)")
         for acc in accounts:
             info = acc.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
             mint = info.get("mint", "")
             amount = info.get("tokenAmount", {}).get("uiAmount", 0) or 0
             if mint and amount > 0:
                 result[mint] = amount
+            elif mint and amount == 0:
+                log(f"    ⚠️ Zero balance: {mint[:12]}... (filtered out)")
 
     if not any_success:
         return None  # All RPC calls failed
@@ -585,7 +608,7 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
 
             t["status"] = "closed"
             t["exit_price"] = price or 0
-            t["exit_time"] = datetime.now(timezone.utc).isoformat()
+            t["exit_time"] = _now_local_iso()
             t["exit_reason"] = "Wallet sync — token not found on-chain (manual close?)"
             t["pnl_pct"] = round(pnl_pct, 2)
             t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
@@ -831,7 +854,7 @@ def check_positions(dry_run: bool = False) -> list:
                 # Close trade in journal
                 t["status"] = "closed"
                 t["exit_price"] = price
-                t["exit_time"] = datetime.now(timezone.utc).isoformat()
+                t["exit_time"] = _now_local_iso()
                 t["exit_reason"] = f"Guardian auto-stop-loss ({pnl_pct:.1f}%)"
                 t["pnl_pct"] = round(pnl_pct, 2)
                 t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
@@ -866,7 +889,7 @@ def check_positions(dry_run: bool = False) -> list:
                             _execute_jupiter_sell(addr)
                         t["status"] = "closed"
                         t["exit_price"] = price
-                        t["exit_time"] = datetime.now(timezone.utc).isoformat()
+                        t["exit_time"] = _now_local_iso()
                         t["exit_reason"] = f"Guardian trailing-stop (peak {peak:.1f}%, drop {drop_from_peak:.1f}%)"
                         t["pnl_pct"] = round(pnl_pct, 2)
                         t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
@@ -896,7 +919,7 @@ def check_positions(dry_run: bool = False) -> list:
                         _execute_jupiter_sell(addr)
                     t["status"] = "closed"
                     t["exit_price"] = price
-                    t["exit_time"] = datetime.now(timezone.utc).isoformat()
+                    t["exit_time"] = _now_local_iso()
                     t["exit_reason"] = f"Guardian auto-take-profit ({pnl_pct:.1f}%)"
                     t["pnl_pct"] = round(pnl_pct, 2)
                     t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
@@ -917,7 +940,7 @@ def check_positions(dry_run: bool = False) -> list:
                     _execute_jupiter_sell(addr)
                 t["status"] = "closed"
                 t["exit_price"] = price
-                t["exit_time"] = datetime.now(timezone.utc).isoformat()
+                t["exit_time"] = _now_local_iso()
                 t["exit_reason"] = f"Kill switch ({_cfg(tcfg, 'risk', 'kill_reason', default='manual')})"
                 t["pnl_pct"] = round(pnl_pct, 2)
                 t["pnl_sol"] = round(float(t.get("amount_sol", 0)) * (pnl_pct / 100), 6)
@@ -1012,14 +1035,9 @@ def main():
         tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
         _wallet_pubkey_str = _get_wallet_pubkey(tcfg) or ""
 
-        # Display timezone from config (e.g. "Europe/Warsaw")
-        tz_name = _cfg(tcfg, "guardian", "display_timezone", default="")
-        if tz_name:
-            try:
-                _display_tz = ZoneInfo(tz_name)
-                log(f"Display timezone: {tz_name}")
-            except Exception:
-                log(f"⚠️ Unknown timezone '{tz_name}' — using system default")
+        # Initialize timezone from config (lazy init will also work, but log it now)
+        _init_display_tz()
+        log(f"Display timezone: {_display_tz}")
 
         _last_sol_fetch_time = 0.0
         SOL_FETCH_INTERVAL = 30  # SOL price + balance every 30s (not every tick)

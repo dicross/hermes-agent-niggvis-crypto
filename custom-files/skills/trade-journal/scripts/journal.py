@@ -20,12 +20,14 @@ import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
 JOURNAL_PATH = os.path.expanduser("~/.hermes/memories/trade-journal.json")
+TRADING_CONFIG_PATH = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
 
 # ---------------------------------------------------------------------------
 # Data helpers
@@ -50,7 +52,19 @@ def _save(data: dict):
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    """ISO timestamp in local timezone (reads display_timezone from config)."""
+    if os.path.exists(TRADING_CONFIG_PATH):
+        try:
+            with open(TRADING_CONFIG_PATH) as f:
+                for line in f:
+                    s = line.strip()
+                    if s.startswith("display_timezone:"):
+                        tz_name = s.split(":", 1)[1].strip().strip('"').strip("'")
+                        if tz_name:
+                            return datetime.now(ZoneInfo(tz_name)).isoformat()
+        except Exception:
+            pass
+    return datetime.now().astimezone().isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -187,7 +201,7 @@ def cmd_stats(args):
 
     # Filter by days if specified
     if args.days:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+        cutoff = datetime.now().astimezone() - timedelta(days=args.days)
         trades = [
             t for t in trades
             if datetime.fromisoformat(t["entry_time"]) >= cutoff

@@ -103,6 +103,14 @@ jupiter:
   max_priority_fee_sol: 0.005
 
 # =============================================================================
+# Timezone
+# =============================================================================
+# All timestamps in journal, logs, and TUI use this timezone.
+# Examples: "Europe/Warsaw", "US/Eastern", "UTC"
+# Leave empty to use system default.
+display_timezone: "Europe/Warsaw"
+
+# =============================================================================
 # Guardian (adaptive price monitor)
 # =============================================================================
 # Guardian adjusts check frequency based on position status:
@@ -115,9 +123,6 @@ guardian:
   interval_active: 5
   interval_hot: 1
   hot_zone_pct: 15
-  # TUI clock timezone (e.g. "Europe/Warsaw", "US/Eastern").
-  # Leave empty to use system timezone.
-  display_timezone: "Europe/Warsaw"
   # Wallet sync: compare on-chain balances with journal, close orphans.
   # WARNING: public Solana RPC may return incomplete data → false closes.
   # Use private RPC (Helius/QuickNode) before enabling.

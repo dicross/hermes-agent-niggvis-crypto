@@ -16,6 +16,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from collections import defaultdict
 
 # ---------------------------------------------------------------------------
@@ -45,8 +46,23 @@ def _save_json(path: str, data: dict):
     os.replace(tmp, path)
 
 
+TRADING_CONFIG_PATH = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
+
+
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    """ISO timestamp in local timezone (reads display_timezone from config)."""
+    if os.path.exists(TRADING_CONFIG_PATH):
+        try:
+            with open(TRADING_CONFIG_PATH) as f:
+                for line in f:
+                    s = line.strip()
+                    if s.startswith("display_timezone:"):
+                        tz_name = s.split(":", 1)[1].strip().strip('"').strip("'")
+                        if tz_name:
+                            return datetime.now(ZoneInfo(tz_name)).isoformat()
+        except Exception:
+            pass
+    return datetime.now().astimezone().isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +77,7 @@ def analyze_trades(days: int = 0) -> dict:
 
     # Filter by days
     if days > 0:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now().astimezone() - timedelta(days=days)
         trades = [
             t for t in trades
             if t.get("entry_time") and datetime.fromisoformat(t["entry_time"]) >= cutoff
@@ -281,7 +297,7 @@ def cmd_update(args):
         return
 
     # Build the learning block
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now().astimezone().strftime("%Y-%m-%d")
     lines = [
         f"\n\n## Learned Patterns ({now}) — Auto-generated\n",
         f"\nBased on {result['total']} closed trades "

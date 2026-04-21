@@ -20,6 +20,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 # ---------------------------------------------------------------------------
 # Config
@@ -164,8 +165,20 @@ def _get_open_trades(journal: dict) -> list:
     return [t for t in journal["trades"] if t["status"] == "open"]
 
 
+def _now_local():
+    """Return timezone-aware local datetime (reads display_timezone from config)."""
+    cfg_raw = _parse_yaml_flat(CONFIG_PATH)
+    tz_name = _cfg(cfg_raw, "display_timezone", default="")
+    if tz_name:
+        try:
+            return datetime.now(ZoneInfo(tz_name))
+        except Exception:
+            pass
+    return datetime.now().astimezone()
+
+
 def _get_today_closed(journal: dict) -> list:
-    today = datetime.now(timezone.utc).date()
+    today = _now_local().date()
     closed = []
     for t in journal["trades"]:
         if t["status"] == "closed" and t.get("exit_time"):
@@ -269,7 +282,7 @@ def cmd_check(args):
     # 6b. Re-buy cooldown — block buying a recently closed token
     rebuy_cooldown = _cfg(cfg_raw, "risk", "rebuy_cooldown_minutes", default=0)
     if rebuy_cooldown and args.token and approved:
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=int(rebuy_cooldown))
+        cutoff = _now_local() - timedelta(minutes=int(rebuy_cooldown))
         for t in journal.get("trades", []):
             if t.get("status") != "closed" or t.get("address") != args.token:
                 continue
@@ -277,7 +290,7 @@ def cmd_check(args):
             try:
                 exit_time = datetime.fromisoformat(exit_time_str.replace("Z", "+00:00"))
                 if exit_time > cutoff:
-                    mins_ago = int((datetime.now(timezone.utc) - exit_time).total_seconds() / 60)
+                    mins_ago = int((_now_local() - exit_time).total_seconds() / 60)
                     reasons.append(
                         f"Re-buy cooldown: #{t['id']} {t.get('token', '?')} closed {mins_ago}m ago "
                         f"(cooldown: {rebuy_cooldown}m)"
@@ -358,7 +371,7 @@ def cmd_kill(args):
     cfg = _load_config()
     cfg["kill_switch"] = True
     cfg["kill_reason"] = args.reason or "Manual kill"
-    cfg["kill_time"] = datetime.now(timezone.utc).isoformat()
+    cfg["kill_time"] = _now_local().isoformat()
     _save_config(cfg)
     print("🔴 KILL SWITCH ACTIVATED")
     print(f"  Reason: {cfg['kill_reason']}")

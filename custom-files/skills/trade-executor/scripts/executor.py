@@ -26,6 +26,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -104,6 +105,18 @@ def _cfg(cfg: dict, *keys, default=None):
 
 def load_trading_config() -> dict:
     return _parse_yaml_flat(TRADING_CONFIG_PATH)
+
+
+def _now_local_iso() -> str:
+    """ISO timestamp in local timezone (reads display_timezone from config)."""
+    tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
+    tz_name = _cfg(tcfg, "display_timezone", default="")
+    if tz_name:
+        try:
+            return datetime.now(ZoneInfo(tz_name)).isoformat()
+        except Exception:
+            pass
+    return datetime.now().astimezone().isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -600,7 +613,7 @@ def cmd_mode(args):
 def cmd_config_propose(args):
     """Propose a config change (for agent use — logs intent, requires approval)."""
     tcfg = load_trading_config()
-    now = datetime.now(timezone.utc).isoformat()
+    now = _now_local_iso()
 
     proposal = {
         "timestamp": now,
@@ -662,7 +675,7 @@ def cmd_config_apply(args):
         with open(TRADING_CONFIG_PATH, "w") as f:
             f.write(new_content)
         p["status"] = "applied"
-        p["applied_at"] = datetime.now(timezone.utc).isoformat()
+        p["applied_at"] = _now_local_iso()
         print(f"✅ Applied: {key} = {value}")
         print(f"  Reason: {p['reason']}")
 
