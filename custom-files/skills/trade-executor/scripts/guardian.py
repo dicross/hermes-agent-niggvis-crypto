@@ -249,8 +249,7 @@ def _render_tui():
 
             # Inline position alerts
             if be:
-                eff_sl = s.get("effective_sl", 0)
-                print(f"     🔒 Break-even active (SL → {eff_sl}%)")
+                print(f"     🔒 Break-even active (SL → entry price)")
             if trailing:
                 peak = s.get("peak_pnl", 0)
                 trail_rem = s.get("trail_remaining", 0)
@@ -263,18 +262,9 @@ def _render_tui():
 
     # --- Recent alerts ---
     if _alerts:
-        YELLOW = "\033[93m"
         for a in _alerts:
-            print(f"  {YELLOW}{a}{RESET}")
+            print(f"  {a}")
         print(sep)
-
-    # --- Footer ---
-    if _last_price_fetch_time > 0:
-        price_ago = int(time.time() - _last_price_fetch_time)
-        next_in = max(0, _watch_interval - price_ago)
-        print(f"  📡 Prices: {price_ago}s ago │ next: {next_in}s")
-    else:
-        print(f"  📡 Waiting for first price fetch...")
 
     sys.stdout.flush()
 
@@ -375,13 +365,13 @@ _telegram_loaded: bool = False
 
 
 def _load_telegram_config():
-    """Load Telegram bot token and home chat_id from gateway config."""
+    """Load Telegram bot token and home chat_id from gateway or hermes config."""
     global _telegram_bot_token, _telegram_chat_id, _telegram_loaded
     if _telegram_loaded:
         return
     _telegram_loaded = True
 
-    # Try gateway.json first (legacy), then config.yaml
+    # Try gateway.json first
     gw = {}
     if os.path.exists(GATEWAY_CONFIG_PATH):
         try:
@@ -398,6 +388,25 @@ def _load_telegram_config():
         hc = tg.get("home_channel", {})
         if isinstance(hc, dict):
             _telegram_chat_id = str(hc.get("chat_id", ""))
+
+    # Fallback: hermes config.yaml (platforms.telegram.token / home_channel.chat_id)
+    if not _telegram_bot_token or not _telegram_chat_id:
+        if os.path.exists(HERMES_CONFIG_PATH):
+            try:
+                hcfg = _parse_yaml_flat(HERMES_CONFIG_PATH)
+                t = _cfg(hcfg, "platforms", "telegram", "token", default="")
+                c = _cfg(hcfg, "platforms", "telegram", "home_channel", "chat_id", default="")
+                if t:
+                    _telegram_bot_token = t
+                if c:
+                    _telegram_chat_id = str(c)
+            except Exception:
+                pass
+
+    if _telegram_bot_token and _telegram_chat_id:
+        log("Telegram: configured ✅")
+    else:
+        log("Telegram: NOT configured (no bot token / chat_id in gateway.json or config.yaml)")
 
 
 def _is_notification_enabled(event_key: str) -> bool:
@@ -421,12 +430,14 @@ def notify_telegram(message: str, event: str = None):
     if not _telegram_bot_token or not _telegram_chat_id:
         return
     url = f"https://api.telegram.org/bot{_telegram_bot_token}/sendMessage"
-    _http_post(url, {
+    result = _http_post(url, {
         "chat_id": _telegram_chat_id,
         "text": message,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True,
     })
+    if result and not result.get("ok"):
+        log(f"  ⚠️ Telegram send failed: {result.get('description', '?')}")
 
 
 # ---------------------------------------------------------------------------
@@ -820,6 +831,12 @@ def check_positions(dry_run: bool = False) -> list:
         # Break-even SL: if position ever exceeded be_trigger, effective SL = 0%
         effective_sl = sl_pct
         if be_trigger > 0:
+            # If breakeven was already activated (persisted in journal), honour it
+            if t.get("breakeven_active"):
+                effective_sl = 0
+                _position_states[t["id"]]["breakeven_active"] = True
+                _position_states[t["id"]]["effective_sl"] = 0
+            # Newly reaching the trigger
             peak = float(t.get("peak_pnl_pct", 0))
             if peak >= be_trigger or pnl_pct >= be_trigger:
                 effective_sl = 0
@@ -1073,9 +1090,7 @@ def main():
 
                 # --- Check positions (SL/TP/trailing/BE/kill) ---
                 try:
-                    actions = check_positions(dry_run=args.dry_run)
-                    if actions:
-                        log(f"→ {len(actions)} action(s) taken", alert=True)
+                    check_positions(dry_run=args.dry_run)
                 except Exception as e:
                     log(f"❌ Position check error: {e}", alert=True)
 
