@@ -36,8 +36,9 @@ import time
 import urllib.error
 import urllib.request
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 import fcntl
 
 # ---------------------------------------------------------------------------
@@ -107,8 +108,13 @@ _watch_interval: int = 120
 _dry_run_mode: bool = False
 
 
+_display_tz = None  # Will be set from config (e.g. "Europe/Warsaw")
+
 def _local_now() -> datetime:
-    """Return current local time (uses system timezone)."""
+    """Return current local time — uses config timezone if set, else system."""
+    global _display_tz
+    if _display_tz:
+        return datetime.now(_display_tz)
     return datetime.now().astimezone()
 
 
@@ -1005,6 +1011,15 @@ def main():
         # Initial config read + wallet pubkey
         tcfg = _parse_yaml_flat(TRADING_CONFIG_PATH)
         _wallet_pubkey_str = _get_wallet_pubkey(tcfg) or ""
+
+        # Display timezone from config (e.g. "Europe/Warsaw")
+        tz_name = _cfg(tcfg, "guardian", "display_timezone", default="")
+        if tz_name:
+            try:
+                _display_tz = ZoneInfo(tz_name)
+                log(f"Display timezone: {tz_name}")
+            except Exception:
+                log(f"⚠️ Unknown timezone '{tz_name}' — using system default")
 
         _last_sol_fetch_time = 0.0
         SOL_FETCH_INTERVAL = 30  # SOL price + balance every 30s (not every tick)
