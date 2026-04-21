@@ -16,6 +16,8 @@ hermes -c                      # Skrócona forma
 Restart gateway przez sudo:
 ```bash
 sudo systemctl restart hermes-gateway
+sudo systemctl stop hermes-gateway
+sudo systemctl start hermes-gateway
 ```
 
 Uruchomienie guardiana:
