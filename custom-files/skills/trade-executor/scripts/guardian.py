@@ -1107,8 +1107,8 @@ def check_positions(dry_run: bool = False) -> list:
                     trail_pct_s = float(strat.get("trailing_pct", 25))
                     trail_from = float(strat.get("trailing_from_pct", 200))
 
-                    if pnl_pct >= trail_from:
-                        # Active trailing zone
+                    if peak >= trail_from:
+                        # Trailing active (peak crossed threshold — stays active even if price drops below)
                         drop = peak - pnl_pct
                         if drop >= trail_pct_s:
                             # Trailing stop triggered
