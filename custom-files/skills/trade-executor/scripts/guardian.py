@@ -262,8 +262,9 @@ def _render_tui():
 
     # --- Recent alerts ---
     if _alerts:
+        YELLOW = "\033[93m"
         for a in _alerts:
-            print(f"  {a}")
+            print(f"  {YELLOW}{a}{RESET}")
         print(sep)
 
     sys.stdout.flush()
