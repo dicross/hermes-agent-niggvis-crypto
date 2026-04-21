@@ -163,7 +163,7 @@ def _get_price(address: str) -> float | None:
 
 
 def _get_token_info(address: str) -> dict | None:
-    """Fetch price + name/symbol from DEXScreener. Returns dict or None."""
+    """Fetch price + name/symbol + priceChange from DEXScreener. Returns dict or None."""
     url = f"{DEXSCREENER_BASE}/tokens/v1/solana/{address}"
     data = _http_get(url)
     if not data or not isinstance(data, list) or len(data) == 0:
@@ -175,10 +175,14 @@ def _get_token_info(address: str) -> dict | None:
         return None
     # baseToken is the token we're looking at
     base = best.get("baseToken", {})
+    price_change = best.get("priceChange") or {}
     return {
         "price": float(price),
         "name": base.get("name", ""),
         "symbol": base.get("symbol", ""),
+        "price_change_h24": float(price_change.get("h24", 0) or 0),
+        "price_change_h6": float(price_change.get("h6", 0) or 0),
+        "price_change_h1": float(price_change.get("h1", 0) or 0),
     }
 
 
@@ -286,6 +290,18 @@ def _do_buy(args, tcfg, mode):
     token_name = args.token_name or token_info.get("symbol") or token_info.get("name") or args.token[:12]
     print(f"  Token: {token_name}")
     print(f"  Price: ${price}")
+
+    # 2b. Dump guard — block tokens that dropped heavily from recent high
+    max_drop = _cfg(tcfg, "risk", "max_24h_drop_pct", default=0)
+    if max_drop:
+        h24 = token_info.get("price_change_h24", 0)
+        h6 = token_info.get("price_change_h6", 0)
+        worst = min(h24, h6)
+        print(f"  Price change: {h24:+.1f}% (24h), {h6:+.1f}% (6h)")
+        if worst <= -abs(max_drop):
+            print(f"\n🚫 DUMP GUARD: token dropped {worst:.1f}% — exceeds max allowed -{abs(max_drop)}%")
+            print(f"  Likely dumping coin — not buying. Override: set risk.max_24h_drop_pct: 0")
+            sys.exit(1)
 
     # 3. Safety check via onchain-analyzer (full analysis, not just contract)
     analyzer_script = os.path.join(SKILLS_DIR, "onchain-analyzer", "scripts", "analyzer.py")

@@ -69,6 +69,9 @@ risk:
   # Prevents buying back right after trailing stop / SL (price likely correcting)
   # Set to 0 to disable.
   rebuy_cooldown_minutes: 240
+  # Dump guard: block buying tokens that dropped more than X% in last 24h/6h.
+  # Catches dead coins, rugpulls, post-pump dumps. Set to 0 to disable.
+  max_24h_drop_pct: 60
 
 # =============================================================================
 # Token Filters (what to buy)
