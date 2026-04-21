@@ -115,6 +115,10 @@ guardian:
   interval_active: 5
   interval_hot: 1
   hot_zone_pct: 15
+  # Wallet sync: compare on-chain balances with journal, close orphans.
+  # WARNING: public Solana RPC may return incomplete data → false closes.
+  # Use private RPC (Helius/QuickNode) before enabling.
+  wallet_sync_enabled: false
   wallet_sync_interval_s: 300
 
 # =============================================================================

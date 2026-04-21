@@ -541,6 +541,20 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
         log("  ⚠️ RPC call failed — skipping wallet sync (not closing anything)")
         return []
 
+    # Diagnostic: log what RPC returned vs what journal expects
+    expected_mints = {t.get("address", ""): t.get("token", "?") for t in open_trades if t.get("address")}
+    found_mints = set(token_balances.keys())
+    log(f"  📋 Wallet sync: RPC found {len(found_mints)} tokens, journal expects {len(expected_mints)}", alert=True)
+    for addr, name in expected_mints.items():
+        if addr in found_mints:
+            log(f"    ✅ {name}: found on-chain (balance: {token_balances[addr]})")
+        else:
+            log(f"    ❌ {name}: NOT found on-chain ({addr[:12]}...)", alert=True)
+    # Log unexpected tokens on-chain (not in journal)
+    unexpected = found_mints - set(expected_mints.keys())
+    if unexpected:
+        log(f"    ℹ️ {len(unexpected)} extra token(s) on-chain not in journal")
+
     closed_ids = []
 
     for t in open_trades:
@@ -1032,9 +1046,10 @@ def main():
                 except Exception as e:
                     log(f"❌ Position check error: {e}", alert=True)
 
-                # --- Wallet sync (time-based) ---
+                # --- Wallet sync (opt-in, default disabled) ---
+                wallet_sync_enabled = bool(_cfg(tcfg, "guardian", "wallet_sync_enabled", default=False))
                 sync_interval = int(_cfg(tcfg, "guardian", "wallet_sync_interval_s", default=300))
-                if tick_start - _last_wallet_sync_time >= sync_interval:
+                if wallet_sync_enabled and tick_start - _last_wallet_sync_time >= sync_interval:
                     if _wallet_pubkey_str:
                         try:
                             closed = sync_journal_with_wallet(dry_run=args.dry_run)
