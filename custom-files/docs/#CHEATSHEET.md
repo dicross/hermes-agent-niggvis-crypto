@@ -4,6 +4,7 @@
 
 ```bash
 cd ~/projects/hermes-agent-niggvis-crypto
+source .venv/bin/activate
 hermes                         # Start rozmowy
 ```
 
@@ -586,3 +587,31 @@ Merge z upstream (tylko WSL): Zob. `custom-files/docs/#GIT-WORKFLOW.md`.
 | Agent nie skanuje | Sprawdź cron: `/cron list` |
 
 ---
+
+## Czyszczenie journala, fresh start
+
+Na WSL:
+1. Zatrzymaj guardian (Ctrl+C w tmux)
+ 
+2. Reset journal
+
+```bash
+echo '{"trades": [], "next_id": 1}' > ~/.hermes/memories/trade-journal.json
+```
+
+3. Wyczyść powiązane state
+
+```bash
+rm -f ~/.hermes/memories/trade-learnings.json    # learning patterns
+rm -f ~/.hermes/cron/pending-evaluation.json     # stare evaluacje
+rm -f ~/.hermes/cron/.guardian.lock              # lockfile
+rm -f ~/.hermes/cron/.executor-buy.lock          # buy lock
+```
+
+4. NIE RUSZAJ:
+- trading-config.yaml (config jest niezależny)
+- MEMORY.md, SOUL.md
+- secrets/trading-wallet.json
+- risk-state.json (chyba że chcesz resetować kill switch)
+ 
+5. Restart guardian

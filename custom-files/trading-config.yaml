@@ -37,12 +37,12 @@ position_sizing:
   # Example: balance 2 SOL, pct 5% → position size 0.1 SOL
   position_pct: 5.0
   # Hard min/max per trade (overrides % calculation)
-  min_trade_sol: 0.01
+  min_trade_sol: 0.015
   max_trade_sol: 0.5
   # Max number of open positions at once
   max_positions: 5
   # Min SOL to keep in wallet (for gas fees + safety buffer)
-  min_wallet_balance: 0.01
+  min_wallet_balance: 0.02
 
 # =============================================================================
 # Risk Management
