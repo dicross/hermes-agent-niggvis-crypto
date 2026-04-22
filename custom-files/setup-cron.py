@@ -90,9 +90,15 @@ JOBS = [
             "Step 2: Run trade-journal stats --days 1. "
             "Step 3: Check trade-executor portfolio. "
             "Step 4: Run risk-manager status. "
-            "Write a daily recap in 8-10 lines: trades, P&L, lessons learned, what to watch tomorrow. "
-            "If any pattern has confidence HIGH, use config-propose to suggest a config change "
-            "(do NOT edit trading-config.yaml directly — always use config-propose)."
+            "Step 5: Write a daily recap in 8-10 lines: trades, P&L, lessons learned, what to watch tomorrow. "
+            "Step 6: If you see a pattern that suggests a config change (e.g. too many losses → lower position size, "
+            "SL too tight/loose, etc.), you MUST actually run the config-propose command — do NOT just mention it:\n"
+            "  python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose "
+            "--key <KEY> --value <VALUE> --reason \"<REASON>\"\n"
+            "Example keys: position_pct, stop_loss_pct, min_safety_score, min_liquidity_usd, slippage_bps.\n"
+            "If no pattern warrants a change, skip this step. "
+            "IMPORTANT: Do NOT just write 'suggest config change' or 'propose via config-propose' — "
+            "you must actually execute the command. The proposal will be sent to Damian for approval."
         ),
     },
     {
@@ -105,9 +111,12 @@ JOBS = [
             "Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update --days 7`. "
             "Step 2: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns`. "
             "Step 3: Run trade-journal stats --days 7. "
-            "Analyze: total P&L, win rate, best/worst trades, which signals worked. "
-            "Based on patterns, use config-propose to suggest specific config changes "
-            "(do NOT edit trading-config.yaml directly). "
+            "Step 4: Analyze: total P&L, win rate, best/worst trades, which signals worked. "
+            "Step 5: Based on patterns, if a config change is warranted, EXECUTE this command:\n"
+            "  python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose "
+            "--key <KEY> --value <VALUE> --reason \"<REASON>\"\n"
+            "Do NOT just write 'suggest X' — actually run config-propose. "
+            "The proposal will be sent to Damian for approval. "
             "Keep report to 10-15 lines."
         ),
     },

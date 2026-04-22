@@ -296,11 +296,40 @@ def _do_buy(args, tcfg, mode):
     if max_drop:
         h24 = token_info.get("price_change_h24", 0)
         h6 = token_info.get("price_change_h6", 0)
+        h1 = token_info.get("price_change_h1", 0)
         worst = min(h24, h6)
-        print(f"  Price change: {h24:+.1f}% (24h), {h6:+.1f}% (6h)")
+        print(f"  Price change: {h24:+.1f}% (24h), {h6:+.1f}% (6h), {h1:+.1f}% (1h)")
+
+        # Classic dump guard: period start-to-now drop
         if worst <= -abs(max_drop):
             print(f"\n🚫 DUMP GUARD: token dropped {worst:.1f}% — exceeds max allowed -{abs(max_drop)}%")
             print(f"  Likely dumping coin — not buying. Override: set risk.max_24h_drop_pct: 0")
+            sys.exit(1)
+
+        # Post-pump dump detection: token pumped hard but is now crashing.
+        # If h24 is very positive but current price is far below implied peak,
+        # the token already dumped from its ATH. We estimate the drop from peak
+        # using the ratio between timeframes.
+        # Example: h24=+3456%, h6=+60% → peak was much higher than current price.
+        #   Implied: price went ~35x in 24h but only ~1.6x in last 6h
+        #   If it peaked at +3456% but h6 shows only +60%, peak-to-current drop:
+        #   drop_from_peak = 1 - (1+h6/100) / (1+h24/100)
+        if h24 > 100 and h6 < h24:
+            try:
+                ratio = (1 + h6 / 100) / (1 + h24 / 100)
+                drop_from_peak_pct = (1 - ratio) * 100
+                if drop_from_peak_pct >= abs(max_drop):
+                    print(f"\n🚫 DUMP GUARD (post-pump): token pumped {h24:+.0f}% in 24h "
+                          f"but current price is {drop_from_peak_pct:.0f}% below implied peak")
+                    print(f"  h24={h24:+.1f}%, h6={h6:+.1f}% → crashed after pump. Skipping.")
+                    sys.exit(1)
+            except (ZeroDivisionError, ValueError):
+                pass
+
+        # Short-term crash: if last hour dropped hard, token is actively dumping
+        if h1 <= -abs(max_drop / 2):
+            print(f"\n🚫 DUMP GUARD (active crash): h1={h1:+.1f}% — token crashing right now")
+            print(f"  Not safe to enter during active dump. Threshold: -{abs(max_drop/2):.0f}%")
             sys.exit(1)
 
     # 3. Safety check via onchain-analyzer (full analysis, not just contract)
