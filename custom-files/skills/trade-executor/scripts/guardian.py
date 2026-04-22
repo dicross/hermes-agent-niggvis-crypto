@@ -54,7 +54,7 @@ GUARDIAN_LOG = os.path.expanduser("~/.hermes/cron/guardian.log")
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com"
 SKILLS_DIR = os.path.expanduser("~/.hermes/skills")
-PENDING_EVALUATION_PATH = os.path.expanduser("~/.hermes/cron/pending-evaluation.json")
+PENDING_EVALUATION_DIR = os.path.expanduser("~/.hermes/cron/pending-evaluations")
 CRON_JOBS_PATH = os.path.expanduser("~/.hermes/cron/jobs.json")
 
 # ---------------------------------------------------------------------------
@@ -298,13 +298,13 @@ def _render_tui():
     sys.stdout.flush()
 
 
-def _http_get(url: str) -> dict | list | None:
+def _http_get(url: str, timeout: int = 5) -> dict | list | None:
     req = urllib.request.Request(url, headers={
         "Accept": "application/json",
         "User-Agent": "hermes-guardian/1.0",
     })
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
     except Exception:
         return None
@@ -325,14 +325,14 @@ def _http_post(url: str, data: dict) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Batch price fetch (single API call for all positions)
+# Multi-provider price fetch (rotate to avoid rate limits)
 # ---------------------------------------------------------------------------
 
-def _batch_fetch_prices(addresses: list) -> dict:
-    """Fetch prices for multiple tokens in one DEXScreener API call.
+_price_provider_index: int = 0  # Rotates each tick
 
-    Returns {address: {price_usd, market_cap, liquidity_usd}}.
-    """
+
+def _fetch_prices_dexscreener(addresses: list) -> dict:
+    """DEXScreener: batch fetch up to 30 tokens in one call. 300 RPM limit."""
     if not addresses:
         return {}
     addrs = ",".join(addresses)
@@ -353,6 +353,68 @@ def _batch_fetch_prices(addresses: list) -> dict:
                 "market_cap": float(pair.get("marketCap", 0) or pair.get("fdv", 0) or 0),
                 "liquidity_usd": liq,
             }
+    return result
+
+
+def _fetch_prices_jupiter(addresses: list) -> dict:
+    """Jupiter Price API v2: batch fetch. 600 RPM limit."""
+    if not addresses:
+        return {}
+    ids = ",".join(addresses)
+    url = f"https://api.jup.ag/price/v2?ids={ids}"
+    data = _http_get(url)
+    if not data or not isinstance(data, dict):
+        return {}
+    prices = data.get("data", {})
+    result = {}
+    for addr in addresses:
+        token_data = prices.get(addr, {})
+        price = token_data.get("price")
+        if price:
+            result[addr] = {
+                "price_usd": float(price),
+                "market_cap": 0,
+                "liquidity_usd": 0,
+            }
+    return result
+
+
+def _batch_fetch_prices(addresses: list) -> dict:
+    """Fetch prices rotating between providers each tick.
+
+    Provider rotation: DEXScreener → Jupiter → DEXScreener → ...
+    If primary fails, falls back to the other. DEXScreener provides
+    richer data (MC, liquidity); Jupiter is faster and has higher RPM.
+    """
+    global _price_provider_index
+    if not addresses:
+        return {}
+
+    providers = [
+        ("DEXScreener", _fetch_prices_dexscreener),
+        ("Jupiter", _fetch_prices_jupiter),
+    ]
+
+    idx = _price_provider_index % len(providers)
+    _price_provider_index += 1
+
+    name, fetch_fn = providers[idx]
+    result = fetch_fn(addresses)
+
+    if not result:
+        # Fallback to other provider
+        fallback_idx = (idx + 1) % len(providers)
+        fb_name, fb_fn = providers[fallback_idx]
+        log(f"  ⚠️ {name} failed, falling back to {fb_name}")
+        result = fb_fn(addresses)
+
+    # If Jupiter was used (no MC/liq data), merge MC/liq from cache
+    if result and idx == 1:
+        for addr, pdata in result.items():
+            if pdata.get("market_cap", 0) == 0 and addr in _price_cache:
+                pdata["market_cap"] = _price_cache[addr].get("market_cap", 0)
+                pdata["liquidity_usd"] = _price_cache[addr].get("liquidity_usd", 0)
+
     return result
 
 
@@ -872,10 +934,12 @@ def _find_evaluator_cron_id(job_name: str) -> str | None:
 def _trigger_evaluation(trade_id: int, trade: dict, tcfg: dict):
     """Trigger the LLM position evaluator cron job for a trade.
 
-    Writes pending-evaluation.json with trade context, then runs
-    'hermes cron run <job_id>' as a non-blocking subprocess.
+    Writes per-trade pending file (pending-evaluations/<trade_id>.json),
+    then runs 'hermes cron run <job_id>'. Each trade gets its own file
+    so concurrent evaluations don't overwrite each other.
     """
-    # Write pending evaluation file for the cron job to read
+    # Write per-trade pending evaluation file
+    os.makedirs(PENDING_EVALUATION_DIR, exist_ok=True)
     pending = {
         "trade_id": trade_id,
         "token": trade.get("token", "?"),
@@ -884,11 +948,11 @@ def _trigger_evaluation(trade_id: int, trade: dict, tcfg: dict):
         "amount_sol": trade.get("amount_sol"),
         "requested_at": _now_local_iso(),
     }
-    os.makedirs(os.path.dirname(PENDING_EVALUATION_PATH), exist_ok=True)
-    tmp = PENDING_EVALUATION_PATH + ".tmp"
+    pending_path = os.path.join(PENDING_EVALUATION_DIR, f"{trade_id}.json")
+    tmp = pending_path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(pending, f, indent=2, default=str)
-    os.replace(tmp, PENDING_EVALUATION_PATH)
+    os.replace(tmp, pending_path)
  
     # Find the evaluator cron job ID
     job_name = _cfg(tcfg, "risk", "evaluator_cron_job_name", default="position-evaluator")
@@ -1086,6 +1150,12 @@ def check_positions(dry_run: bool = False) -> list:
                         t["evaluation_pending"] = False
                         eval_pending = False
                         journal_dirty = True
+                        # Cleanup pending evaluation file
+                        pf = os.path.join(PENDING_EVALUATION_DIR, f"{tid}.json")
+                        try:
+                            os.remove(pf)
+                        except FileNotFoundError:
+                            pass
                         notify_telegram(
                             f"⏰ *Evaluator timeout* — #{tid} {token_name}\n"
                             f"Applied default: trailing {default_strat.get('trailing_pct', 25)}% "
