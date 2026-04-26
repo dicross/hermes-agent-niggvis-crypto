@@ -11,6 +11,7 @@
 # paper = simulation only (logged to journal, no on-chain execution)
 # real  = live trading via Jupiter API (on-chain swaps)
 mode: real
+can_open_new_positions: true
 
 # =============================================================================
 # Wallet

@@ -34,12 +34,16 @@ JOBS = [
         "deliver": "telegram",
         "prompt": (
             "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10. "
-            "For promising tokens with liquidity > $10k, go straight to executor.py buy "
+            "For promising tokens with liquidity > $10k, check the trading config first: "
+            "run `python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-get can_open_new_positions` "
+            "to check if new positions are allowed. "
+            "If can_open_new_positions is false, do NOT buy anything and respond [SILENT]. "
+            "If can_open_new_positions is true, go straight to executor.py buy "
             "(it runs full analyze + risk check internally). Do NOT run analyzer.py safety manually. "
             "Position size is auto-calculated from config. "
             "RESPONSE RULES: "
             "- If you executed a BUY: report token name, safety score, amount, price, tx link. "
-            "- If NO buy was made (no candidates, all blocked, insufficient balance): respond [SILENT]"
+            "- If NO buy was made (no candidates, all blocked, insufficient balance, new positions disabled): respond [SILENT]"
         ),
     },
     {

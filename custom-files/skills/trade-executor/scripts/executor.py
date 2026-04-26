@@ -188,6 +188,12 @@ def _get_token_info(address: str) -> dict | None:
 
 def _run_skill(script: str, args: list) -> tuple[int, str]:
     tcfg = load_trading_config()
+    # Check if new positions are allowed
+    can_open = _cfg(tcfg, "can_open_new_positions", default=True)
+    if not can_open:
+        print("🚫 Trading control: New positions are currently disabled in config.")
+        print("   Set can_open_new_positions: true in trading-config.yaml to enable buying.")
+        sys.exit(1)
     python_bin = _cfg(tcfg, "python_bin", default=sys.executable)
     if isinstance(python_bin, str):
         python_bin = os.path.expanduser(python_bin)
@@ -240,6 +246,12 @@ def _calculate_position_size(tcfg: dict) -> float:
 def cmd_buy(args):
     """Execute a buy."""
     tcfg = load_trading_config()
+    # Check if new positions are allowed
+    can_open = _cfg(tcfg, "can_open_new_positions", default=True)
+    if not can_open:
+        print("🚫 Trading control: New positions are currently disabled in config.")
+        print("   Set can_open_new_positions: true in trading-config.yaml to enable buying.")
+        sys.exit(1)
     mode = _cfg(tcfg, "mode", default="paper")
     # Acquire exclusive lock to prevent duplicate buys from parallel sessions
     os.makedirs(os.path.dirname(BUY_LOCK_PATH), exist_ok=True)
@@ -431,6 +443,12 @@ def _do_buy(args, tcfg, mode):
 def cmd_sell(args):
     """Close a position (sell)."""
     tcfg = load_trading_config()
+    # Check if new positions are allowed
+    can_open = _cfg(tcfg, "can_open_new_positions", default=True)
+    if not can_open:
+        print("🚫 Trading control: New positions are currently disabled in config.")
+        print("   Set can_open_new_positions: true in trading-config.yaml to enable buying.")
+        sys.exit(1)
     mode = _cfg(tcfg, "mode", default="paper")
 
     journal = _load_json(JOURNAL_PATH)
@@ -502,6 +520,12 @@ def cmd_sell(args):
 def cmd_check_exits(args):
     """Check open positions for exit signals."""
     tcfg = load_trading_config()
+    # Check if new positions are allowed
+    can_open = _cfg(tcfg, "can_open_new_positions", default=True)
+    if not can_open:
+        print("🚫 Trading control: New positions are currently disabled in config.")
+        print("   Set can_open_new_positions: true in trading-config.yaml to enable buying.")
+        sys.exit(1)
     journal = _load_json(JOURNAL_PATH)
     open_trades = [t for t in journal.get("trades", []) if t["status"] == "open"]
 
@@ -563,6 +587,12 @@ def cmd_check_exits(args):
 def cmd_portfolio(args):
     """Show current holdings with live prices."""
     tcfg = load_trading_config()
+    # Check if new positions are allowed
+    can_open = _cfg(tcfg, "can_open_new_positions", default=True)
+    if not can_open:
+        print("🚫 Trading control: New positions are currently disabled in config.")
+        print("   Set can_open_new_positions: true in trading-config.yaml to enable buying.")
+        sys.exit(1)
     journal = _load_json(JOURNAL_PATH)
     open_trades = [t for t in journal.get("trades", []) if t["status"] == "open"]
 
@@ -619,6 +649,12 @@ def cmd_portfolio(args):
 def cmd_mode(args):
     """View or set trading mode."""
     tcfg = load_trading_config()
+    # Check if new positions are allowed
+    can_open = _cfg(tcfg, "can_open_new_positions", default=True)
+    if not can_open:
+        print("🚫 Trading control: New positions are currently disabled in config.")
+        print("   Set can_open_new_positions: true in trading-config.yaml to enable buying.")
+        sys.exit(1)
     current = _cfg(tcfg, "mode", default="paper")
 
     if args.new_mode:
@@ -658,6 +694,12 @@ def cmd_mode(args):
 def cmd_config_propose(args):
     """Propose a config change (for agent use — logs intent, requires approval)."""
     tcfg = load_trading_config()
+    # Check if new positions are allowed
+    can_open = _cfg(tcfg, "can_open_new_positions", default=True)
+    if not can_open:
+        print("🚫 Trading control: New positions are currently disabled in config.")
+        print("   Set can_open_new_positions: true in trading-config.yaml to enable buying.")
+        sys.exit(1)
     now = _now_local_iso()
 
     proposal = {
