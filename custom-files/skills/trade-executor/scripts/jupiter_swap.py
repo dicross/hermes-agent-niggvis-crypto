@@ -422,7 +422,7 @@ def jupiter_limit_order_quote(
     Fetch a limit order quote from Jupiter.
     Note: Jupiter Limit Order API differs from Swap API.
     """
-    # This is a conceptual implementation. 
+    # This is a conceptual implementation.
     # Actual Jupiter Limit Order API endpoint: https://api.jup.ag/limit/v1/quote
     url = "https://api.jup.ag/limit/v1/quote"
     params = {
@@ -434,11 +434,11 @@ def jupiter_limit_order_quote(
     }
     qs = "&".join(f"{k}={v}" for k, v in params.items())
     full_url = f"{url}?{qs}"
-    
+
     headers = {}
     if api_key:
         headers["x-api-key"] = api_key
-        
+
     return _http_get(full_url, headers=headers)
 
 def jupiter_limit_order_create(
@@ -452,7 +452,7 @@ def jupiter_limit_order_create(
     headers = {}
     if api_key:
         headers["x-api-key"] = api_key
-        
+
     return _http_post(url, {"signedTransaction": signed_tx_b64}, headers=headers)
 
 def jupiter_limit_order_cancel(
@@ -466,7 +466,7 @@ def jupiter_limit_order_cancel(
     headers = {}
     if api_key:
         headers["x-api-key"] = api_key
-        
+
     return _http_get(url, headers=headers)
 
 
@@ -703,9 +703,9 @@ def cmd_limit_sell(args):
     cfg = load_config()
     kp, pubkey = load_keypair()
     api_key = os.environ.get("JUPITER_API_KEY")
-    
+
     print(f"🔄 Creating Limit Sell: {args.token[:12]}... | Amount: {args.amount} | Price: ${args.price}")
-    
+
     # 1. Get Quote
     quote = jupiter_limit_order_quote(
         input_mint=args.token,
@@ -715,18 +715,18 @@ def cmd_limit_sell(args):
         taker=pubkey,
         api_key=api_key
     )
-    
+
     if not quote or "transaction" not in quote:
         print(f"❌ Failed to get limit order quote: {quote}")
         sys.exit(1)
-        
+
     # 2. Sign
     try:
         signed_b64 = sign_transaction(quote["transaction"], kp)
     except Exception as e:
         print(f"❌ Signing failed: {e}")
         sys.exit(1)
-        
+
     # 3. Create
     result = jupiter_limit_order_create(signed_b64, api_key=api_key)
     if result and "id" in result:

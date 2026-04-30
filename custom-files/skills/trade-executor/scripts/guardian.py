@@ -845,7 +845,7 @@ def _parse_yaml_flat(path: str) -> dict:
                 continue
             indent = len(line) - len(line.lstrip())
             content = stripped.strip()
- 
+
             # --- List item: "- key: val" ---
             if content.startswith("- "):
                 content = content[2:].strip()
@@ -853,7 +853,7 @@ def _parse_yaml_flat(path: str) -> dict:
                 while len(stack) > 1 and stack[-1][0] >= indent:
                     stack.pop()
                 parent_indent, parent_container = stack[-1]
- 
+
                 # Parent is an empty dict → it was created by "key:" with no value.
                 # Convert it to a list in the grandparent dict.
                 if isinstance(parent_container, dict) and len(parent_container) == 0 and len(stack) >= 2:
@@ -865,10 +865,10 @@ def _parse_yaml_flat(path: str) -> dict:
                                 parent_container = grandparent[k]
                                 stack[-1] = (parent_indent, parent_container)
                                 break
- 
+
                 if not isinstance(parent_container, list):
                     continue
- 
+
                 # Create new list item dict
                 item = {}
                 parent_container.append(item)
@@ -883,7 +883,7 @@ def _parse_yaml_flat(path: str) -> dict:
                 # Push list item as context for subsequent indented lines
                 stack.append((indent, item))
                 continue
- 
+
             if ":" not in content:
                 continue
             key, _, val = content.partition(":")
@@ -1001,12 +1001,12 @@ def _update_on_chain_sl(token_address: str, amount_tokens: float, new_sl_price: 
             log(f" ⚠️ Failed to cancel old SL order {old_order_id}, proceeding anyway")
 
     # 2. Create new order
-    # Note: amount_tokens should be raw amount. 
+    # Note: amount_tokens should be raw amount.
     # In a real scenario, we'd fetch the current balance from the wallet.
     rc_create, output = subprocess.run(
-        [sys.executable, jupiter_script, "limit-sell", 
-         "--token", token_address, 
-         "--amount", str(int(amount_tokens)), 
+        [sys.executable, jupiter_script, "limit-sell",
+         "--token", token_address,
+         "--amount", str(int(amount_tokens)),
          "--price", f"{new_sl_price:.8f}"],
         capture_output=True, text=True, timeout=30
     )
@@ -1015,7 +1015,7 @@ def _update_on_chain_sl(token_address: str, amount_tokens: float, new_sl_price: 
         for line in output.split("\n"):
             if "ID: " in line:
                 return line.split("ID: ")[-1].strip()
-    
+
     log(f" ❌ Failed to create updated on-chain SL: {output}")
     return None
 
@@ -1069,14 +1069,14 @@ def _trigger_evaluation(trade_id: int, trade: dict, tcfg: dict):
     with open(tmp, "w") as f:
         json.dump(pending, f, indent=2, default=str)
     os.replace(tmp, pending_path)
- 
+
     # Find the evaluator cron job ID
     job_name = _cfg(tcfg, "risk", "evaluator_cron_job_name", default="position-evaluator")
     job_id = _find_evaluator_cron_id(job_name)
     if not job_id:
         log(f"  ⚠️ Cron job '{job_name}' not found — cannot trigger evaluation", alert=True)
         return
- 
+
     # Trigger the cron job (non-blocking)
     try:
         hermes_bin = shutil.which("hermes")

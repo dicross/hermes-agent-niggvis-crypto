@@ -58,7 +58,7 @@ risk:
   allow_new_positions: true
   # Base stop loss — always active, even before any tier is reached.
   stop_loss_pct: -30
- 
+
   # ── Tiered Exit System ──────────────────────────────────────────────────
   # Replaces old take_profit_pct / trailing_stop_pct / breakeven_trigger_pct.
   # Guardian processes tiers mechanically (ratchets SL up, never down).
@@ -74,26 +74,26 @@ risk:
     - trigger_pct: 100
       action: evaluate
       new_sl_pct: 40
- 
+
   # Fallback strategy if LLM evaluation fails or times out.
   # Guardian applies this automatically after evaluation_timeout_minutes.
   default_exit_strategy:
     type: trailing
     trailing_pct: 25
     trailing_from_pct: 200
- 
+
   # Max time to wait for LLM evaluator before applying default strategy.
   evaluation_timeout_minutes: 5
- 
+
   # Name of the paused cron job to trigger for position evaluation.
   # Created by setup-cron.py. Guardian runs: hermes cron run <id>
   evaluator_cron_job_name: "position-evaluator"
- 
+
   # ── Deprecated (ignored when exit_tiers is present) ─────────────────────
   # take_profit_pct: 75
   # trailing_stop_pct: 15
   # breakeven_trigger_pct: 50
- 
+
   # ── Other risk controls ─────────────────────────────────────────────────
   daily_loss_limit_pct: -20
   weekly_loss_limit_pct: -40
