@@ -17,7 +17,10 @@ mode: real
 # =============================================================================
 wallet:
   # Solana RPC endpoint (private RPC recommended for real trading)
-  rpc_url: "https://api.mainnet-beta.solana.com"
+  # Helius RPC endpoint with API key from environment variable
+  rpc_url: "https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}"
+  # Fallback to public RPC if Helius is not configured
+  # fallback_rpc_url: "https://api.mainnet-beta.solana.com"
   # Path to keypair file (base58 or JSON array format)
   # SECURITY: use a DEDICATED wallet, never your main wallet
   keypair_path: "~/.hermes/secrets/trading-wallet.json"
@@ -37,7 +40,7 @@ position_sizing:
   # Example: balance 2 SOL, pct 5% → position size 0.1 SOL
   position_pct: 5.0
   # Hard min/max per trade (overrides % calculation)
-  min_trade_sol: 0.015
+  min_trade_sol: 0.010
   max_trade_sol: 0.5
   # Max number of open positions at once
   max_positions: 5
@@ -48,6 +51,9 @@ position_sizing:
 # Risk Management
 # =============================================================================
 risk:
+  # Global toggle to prevent opening new positions.
+  # If false, all buy requests are blocked, but existing positions are still managed.
+  allow_new_positions: true
   # Base stop loss — always active, even before any tier is reached.
   stop_loss_pct: -30
  
@@ -160,7 +166,7 @@ guardian:
 # Set false to mute a specific notification type.
 notifications:
   # --- Guardian sell events ---
-  on_stop_loss: false
+  on_stop_loss: true
   on_take_profit: true
   on_trailing_stop: true
   on_kill_switch: true

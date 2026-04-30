@@ -244,9 +244,28 @@ def _http_post(url: str, data: dict, headers: dict | None = None) -> dict | None
 
 
 def _rpc_call(method: str, params: list, rpc_url: str | None = None) -> dict | None:
-    """Solana JSON-RPC call."""
-    cfg = load_config()
-    url = rpc_url or get_cfg(cfg, "wallet", "rpc_url", default=SOLANA_RPC_DEFAULT)
+    """Solana JSON-RPC call with fallback mechanism."""
+    # Determine RPC URL with fallback priority:
+    # 1. Explicit parameter
+    # 2. Helius RPC from config (uses HELIUS_API_KEY from env)
+    # 3. Direct environment override
+    # 4. Hardcoded public default
+    if rpc_url is not None:
+        url = rpc_url
+    else:
+        cfg = load_config()
+        # Get RPC URL from config (may contain ${HELIUS_API_KEY} placeholder)
+        configured_rpc = get_cfg(cfg, "wallet", "rpc_url", default=None)
+        # Check for direct environment override
+        env_rpc = os.environ.get("SOLANA_RPC_URL")
+        # Use environment override if set, otherwise use config, otherwise default
+        if env_rpc:
+            url = env_rpc
+        elif configured_rpc:
+            url = configured_rpc
+        else:
+            url = SOLANA_RPC_DEFAULT
+    
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     return _http_post(url, payload)
 
@@ -357,6 +376,71 @@ def sign_transaction(tx_base64: str, keypair) -> str:
 
     signed_bytes = bytes(tx)
     return base64.b64encode(signed_bytes).decode()
+
+
+# ---------------------------------------------------------------------------
+# Jupiter Limit Order API
+# ---------------------------------------------------------------------------
+
+
+def jupiter_limit_order_quote(
+    input_mint: str,
+    output_mint: str,
+    amount_raw: int,
+    limit_price_usd: float,
+    taker: str,
+    api_key: str | None = None,
+) -> dict | None:
+    """
+    Fetch a limit order quote from Jupiter.
+    Note: Jupiter Limit Order API differs from Swap API.
+    """
+    # This is a conceptual implementation. 
+    # Actual Jupiter Limit Order API endpoint: https://api.jup.ag/limit/v1/quote
+    url = "https://api.jup.ag/limit/v1/quote"
+    params = {
+        "inputMint": input_mint,
+        "outputMint": output_mint,
+        "amount": str(amount_raw),
+        "limitPrice": str(limit_price_usd),
+        "taker": taker,
+    }
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    full_url = f"{url}?{qs}"
+    
+    headers = {}
+    if api_key:
+        headers["x-api-key"] = api_key
+        
+    return _http_get(full_url, headers=headers)
+
+def jupiter_limit_order_create(
+    signed_tx_b64: str,
+    api_key: str | None = None,
+) -> dict | None:
+    """
+    Submit a signed limit order transaction to Jupiter.
+    """
+    url = "https://api.jup.ag/limit/v1/create"
+    headers = {}
+    if api_key:
+        headers["x-api-key"] = api_key
+        
+    return _http_post(url, {"signedTransaction": signed_tx_b64}, headers=headers)
+
+def jupiter_limit_order_cancel(
+    order_id: str,
+    api_key: str | None = None,
+) -> dict | None:
+    """
+    Cancel a limit order by ID.
+    """
+    url = f"https://api.jup.ag/limit/v1/cancel?id={order_id}"
+    headers = {}
+    if api_key:
+        headers["x-api-key"] = api_key
+        
+    return _http_get(url, headers=headers)
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +667,60 @@ def cmd_balance(args):
         if acct:
             print(f"  Token account: {acct}")
 
+
+def cmd_limit_sell(args):
+    """
+    Create a limit sell order (Hard SL).
+    Usage: python3 jupiter_swap.py limit-sell --token <mint> --amount <raw> --price <usd>
+    """
+    cfg = load_config()
+    kp, pubkey = load_keypair()
+    api_key = os.environ.get("JUPITER_API_KEY")
+    
+    print(f"🔄 Creating Limit Sell: {args.token[:12]}... | Amount: {args.amount} | Price: ${args.price}")
+    
+    # 1. Get Quote
+    quote = jupiter_limit_order_quote(
+        input_mint=args.token,
+        output_mint=SOL_MINT,
+        amount_raw=int(args.amount),
+        limit_price_usd=float(args.price),
+        taker=pubkey,
+        api_key=api_key
+    )
+    
+    if not quote or "transaction" not in quote:
+        print(f"❌ Failed to get limit order quote: {quote}")
+        sys.exit(1)
+        
+    # 2. Sign
+    try:
+        signed_b64 = sign_transaction(quote["transaction"], kp)
+    except Exception as e:
+        print(f"❌ Signing failed: {e}")
+        sys.exit(1)
+        
+    # 3. Create
+    result = jupiter_limit_order_create(signed_b64, api_key=api_key)
+    if result and "id" in result:
+        print(f"✅ Limit Order Created! ID: {result['id']}")
+        print(f"\n---JSON---\n{json.dumps(result, indent=2)}")
+    else:
+        print(f"❌ Failed to create limit order: {result}")
+        sys.exit(1)
+
+def cmd_limit_cancel(args):
+    """
+    Cancel a limit order.
+    Usage: python3 jupiter_swap.py limit-cancel --id <order_id>
+    """
+    api_key = os.environ.get("JUPITER_API_KEY")
+    result = jupiter_limit_order_cancel(args.id, api_key=api_key)
+    if result:
+        print(f"✅ Order {args.id} cancelled.")
+    else:
+        print(f"❌ Failed to cancel order {args.id}")
+        sys.exit(1)
 
 def cmd_wallet(args):
     """Show wallet info."""

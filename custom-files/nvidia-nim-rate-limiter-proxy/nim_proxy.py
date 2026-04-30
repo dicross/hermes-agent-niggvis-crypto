@@ -23,7 +23,7 @@ from collections import deque
 LOCAL_PORT  = 443
 NVIDIA_HOST = "integrate.api.nvidia.com"
 RPM_LIMIT   = 40
-CERT_DIR    = os.path.expanduser("~/.nim-proxy")
+CERT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
 CERT_FILE   = os.path.join(CERT_DIR, "nim_cert.pem")
 KEY_FILE    = os.path.join(CERT_DIR, "nim_key.pem")
 # ──────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ def render_status(waiting=False, wait_sec=0.0):
     color  = RED if pct >= 0.90 else YEL if pct >= 0.65 else GRN
     sep    = "-" * 54
 
-    out  = "\033[2J\033[H"
+    out = "\033[H"
     out += f"+{sep}+\n"
     out += f"|  NVIDIA NIM Rate Limiter Proxy  (HTTPS :443){' '*9}|\n"
     out += f"|  Intercepting: https://integrate.api.nvidia.com{' '*5}|\n"

@@ -16,13 +16,14 @@ echo "[3/3] Removing NODE_EXTRA_CA_CERTS from shell profiles..."
 for FILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     if [ -f "$FILE" ]; then
         sed -i '/# nim-proxy: NODE_EXTRA_CA_CERTS/d' "$FILE"
-        sed -i '/NODE_EXTRA_CA_CERTS.*nim-proxy/d' "$FILE"
+        sed -i "/NODE_EXTRA_CA_CERTS.*$CERT_FILE/d" "$FILE"
     fi
 done
+
 VSCODE_ENV="$HOME/.vscode-server/server-env-setup"
 if [ -f "$VSCODE_ENV" ]; then
     sed -i '/# nim-proxy: NODE_EXTRA_CA_CERTS/d' "$VSCODE_ENV"
-    sed -i '/NODE_EXTRA_CA_CERTS.*nim-proxy/d' "$VSCODE_ENV"
+    sed -i "/NODE_EXTRA_CA_CERTS.*$CERT_FILE/d" "$VSCODE_ENV"
 fi
 echo "      Done."
 

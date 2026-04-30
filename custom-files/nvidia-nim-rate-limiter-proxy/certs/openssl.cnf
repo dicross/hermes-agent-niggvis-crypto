@@ -1,0 +1,12 @@
+[req]
+default_bits       = 2048
+prompt             = no
+default_md         = sha256
+distinguished_name = dn
+x509_extensions    = v3_req
+
+[dn]
+CN = integrate.api.nvidia.com
+
+[v3_req]
+subjectAltName = DNS:integrate.api.nvidia.com

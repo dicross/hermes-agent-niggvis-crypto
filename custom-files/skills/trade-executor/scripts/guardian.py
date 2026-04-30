@@ -57,6 +57,55 @@ SKILLS_DIR = os.path.expanduser("~/.hermes/skills")
 PENDING_EVALUATION_DIR = os.path.expanduser("~/.hermes/cron/pending-evaluations")
 CRON_JOBS_PATH = os.path.expanduser("~/.hermes/cron/jobs.json")
 
+
+def _get_solana_rpc_url() -> str:
+    """Get Solana RPC URL with fallback mechanism.
+    
+    Priority order:
+    1. HELIUS_API_KEY environment variable -> construct Helius URL
+    2. SOLANA_RPC_URL environment variable (direct override)
+    3. wallet.rpc_url from trading-config.yaml
+    4. Hardcoded public default
+    """
+    # 1. Check for Helius API key and construct URL if present
+    helius_key = os.environ.get("HELIUS_API_KEY")
+    if helius_key:
+        return f"https://mainnet.helius-rpc.com/?key={helius_key}"
+    
+    # 2. Direct environment override
+    env_rpc = os.environ.get("SOLANA_RPC_URL")
+    if env_rpc:
+        return env_rpc
+    
+    # 3. Load from config file
+    try:
+        config_path = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
+        if os.path.exists(config_path):
+            # Try to import yaml, fallback to simple parsing if not available
+            try:
+                import yaml
+                with open(config_path) as f:
+                    cfg = yaml.safe_load(f)
+                if cfg and isinstance(cfg, dict):
+                    wallet_cfg = cfg.get("wallet", {})
+                    if wallet_cfg and isinstance(wallet_cfg, dict):
+                        rpc_url = wallet_cfg.get("rpc_url")
+                        if rpc_url and isinstance(rpc_url, str):
+                            return rpc_url
+            except ImportError:
+                # Fallback to simple parsing if yaml not available
+                with open(config_path) as f:
+                    for line in f:
+                        if line.strip().startswith("rpc_url:"):
+                            rpc_url = line.split(":", 1)[1].strip().strip('"').strip("'")
+                            if rpc_url:
+                                return rpc_url
+    except Exception:
+        pass  # Continue to fallback
+    
+    # 4. Hardcoded public default
+    return SOLANA_MAINNET_RPC
+
 # ---------------------------------------------------------------------------
 # Lock (prevent overlapping runs)
 # ---------------------------------------------------------------------------
@@ -659,7 +708,7 @@ def sync_journal_with_wallet(dry_run: bool = False) -> list:
     if not open_trades:
         return []
 
-    rpc_url = _cfg(tcfg, "wallet", "rpc_url", default=SOLANA_MAINNET_RPC)
+    rpc_url = _get_solana_rpc_url()
     wallet_pubkey = _get_wallet_pubkey(tcfg)
     if not wallet_pubkey:
         log("  ⚠️ Cannot read wallet pubkey — skipping wallet sync")
@@ -879,7 +928,7 @@ def _execute_jupiter_sell(address: str, pct: int = 100) -> bool:
     """Execute real sell via Jupiter. Returns True if successful."""
     jupiter_script = os.path.join(SKILLS_DIR, "trade-executor", "scripts", "jupiter_swap.py")
     if not os.path.exists(jupiter_script):
-        log("  ⚠️ jupiter_swap.py not found — cannot execute real sell")
+        log(" ⚠️ jupiter_swap.py not found — cannot execute real sell")
         return False
     try:
         # Use python_bin from config (venv with solders)
@@ -891,17 +940,57 @@ def _execute_jupiter_sell(address: str, pct: int = 100) -> bool:
             python_bin = sys.executable
         result = subprocess.run(
             [python_bin, jupiter_script, "sell", "--token", address, "--pct", str(pct)],
-            capture_output=True, text=True, timeout=60
+            capture_output=True,
+            text=True,
+            timeout=60
         )
         if "Success" in result.stdout:
-            log(f"  🔗 Jupiter sell executed ({pct}%)")
+            log(f" 🔗 Jupiter sell executed ({pct}%)")
             return True
         else:
-            log(f"  ⚠️ Jupiter sell may have failed: {result.stdout[-200:]}")
+            log(f" ⚠️ Jupiter sell may have failed: {result.stdout[-200:]}")
             return False
     except Exception as e:
-        log(f"  ❌ Jupiter sell error: {e}")
+        log(f" ❌ Jupiter sell error: {e}")
         return False
+
+def _update_on_chain_sl(token_address: str, amount_tokens: float, new_sl_price: float, old_order_id: str | None) -> str | None:
+    """
+    Updates the on-chain Hard SL by cancelling the old order and creating a new one.
+    Returns the new order ID if successful, else None.
+    """
+    jupiter_script = os.path.join(SKILLS_DIR, "trade-executor", "scripts", "jupiter_swap.py")
+    if not os.path.exists(jupiter_script):
+        log(" ⚠️ jupiter_swap.py not found — cannot update on-chain SL")
+        return None
+
+    # 1. Cancel old order if it exists
+    if old_order_id:
+        rc_cancel, _ = subprocess.run(
+            [sys.executable, jupiter_script, "limit-cancel", "--id", old_order_id],
+            capture_output=True, text=True, timeout=30
+        )
+        if rc_cancel != 0:
+            log(f" ⚠️ Failed to cancel old SL order {old_order_id}, proceeding anyway")
+
+    # 2. Create new order
+    # Note: amount_tokens should be raw amount. 
+    # In a real scenario, we'd fetch the current balance from the wallet.
+    rc_create, output = subprocess.run(
+        [sys.executable, jupiter_script, "limit-sell", 
+         "--token", token_address, 
+         "--amount", str(int(amount_tokens)), 
+         "--price", f"{new_sl_price:.8f}"],
+        capture_output=True, text=True, timeout=30
+    )
+
+    if rc_create == 0:
+        for line in output.split("\n"):
+            if "ID: " in line:
+                return line.split("ID: ")[-1].strip()
+    
+    log(f" ❌ Failed to create updated on-chain SL: {output}")
+    return None
 
 
 def _close_trade(t: dict, price: float, pnl_pct: float, reason: str, mode: str) -> dict:
@@ -1532,7 +1621,7 @@ def main():
                     if sol_p > 0:
                         _sol_price_usd = sol_p
                     if _wallet_pubkey_str:
-                        rpc_url = _cfg(tcfg, "wallet", "rpc_url", default=SOLANA_MAINNET_RPC)
+                        rpc_url = _get_solana_rpc_url()
                         bal = _get_sol_balance(_wallet_pubkey_str, rpc_url)
                         if bal >= 0:
                             _wallet_balance_sol = bal

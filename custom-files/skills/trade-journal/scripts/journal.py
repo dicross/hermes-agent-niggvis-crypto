@@ -19,6 +19,7 @@ import io
 import json
 import os
 import sys
+import urllib.request
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
@@ -67,6 +68,27 @@ def _now_iso() -> str:
     return datetime.now().astimezone().isoformat()
 
 
+def _get_sol_price() -> float:
+        """Get current SOL/USD price from DEXScreener."""
+        # SOL mint address on Solana
+        SOL_ADDRESS = "So11111111111111111111111111111111111111112"
+        url = f"https://api.dexscreener.com/tokens/v1/solana/{SOL_ADDRESS}"
+        try:
+            req = urllib.request.Request(url, headers={
+                "Accept": "application/json",
+                "User-Agent": "hermes-trade-journal/2.0",
+            })
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+                if not data or not isinstance(data, list) or len(data) == 0:
+                    return 0.0
+                pairs = sorted(data, key=lambda p: float(p.get("liquidity", {}).get("usd", 0) or 0), reverse=True)
+                price = pairs[0].get("priceUsd")
+                return float(price) if price else 0.0
+        except Exception:
+            return 0.0
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -78,6 +100,14 @@ def cmd_add(args):
     trade_id = data["next_id"]
     data["next_id"] = trade_id + 1
 
+    # Get SOL/USD price for conversion
+    sol_price_usd = _get_sol_price()
+    
+    # Calculate SOL price per token (SOL/token)
+    # If entry_price is USD per token, then SOL per token = USD per token / SOL price in USD
+    entry_price_sol = args.price / sol_price_usd if sol_price_usd > 0 else 0
+    entry_price_usd = args.price
+
     trade = {
         "id": trade_id,
         "status": "open",
@@ -85,10 +115,12 @@ def cmd_add(args):
         "token": args.token,
         "address": args.address,
         "amount_sol": args.amount,
-        "entry_price": args.price,
+        "entry_price_sol": entry_price_sol,
+        "entry_price_usd": entry_price_usd,
         "entry_time": _now_iso(),
         "entry_reason": args.reason,
-        "exit_price": None,
+        "exit_price_sol": None,
+        "exit_price_usd": None,
         "exit_time": None,
         "exit_reason": None,
         "pnl_pct": None,
@@ -101,7 +133,8 @@ def cmd_add(args):
     mode = "📝 PAPER" if args.paper else "💰 REAL"
     print(f"{mode} Trade #{trade_id} logged:")
     print(f"  Token: {args.token} ({args.address[:12]}...)")
-    print(f"  Amount: {args.amount} SOL @ {args.price}")
+    print(f"  Amount: {args.amount} SOL")
+    print(f"  Entry: {entry_price_sol:.6f} SOL/token (${entry_price_usd:.6f})")
     print(f"  Reason: {args.reason}")
 
 
@@ -121,16 +154,32 @@ def cmd_close(args):
         print(f"⚠ Trade #{args.id} is already closed.")
         sys.exit(1)
 
-    entry_price = float(trade["entry_price"])
-    exit_price = float(args.exit_price)
-    pnl_pct = ((exit_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+    # Get SOL/USD price for conversion
+    sol_price_usd = _get_sol_price()
+    
+    # Calculate exit prices
+    exit_price_usd = float(args.exit_price)
+    exit_price_sol = exit_price_usd / sol_price_usd if sol_price_usd > 0 else 0
+    
+    # Entry prices (already stored)
+    entry_price_sol = float(trade.get("entry_price_sol", 0))
+    entry_price_usd = float(trade.get("entry_price_usd", 0))
+    
+    # Fallback to old format if new fields don't exist
+    if entry_price_sol == 0 and entry_price_usd == 0:
+        entry_price_usd = float(trade["entry_price"])
+        entry_price_sol = entry_price_usd / sol_price_usd if sol_price_usd > 0 else 0
 
-    # Approximate SOL P&L (based on token value change, not SOL amount)
+    # Calculate P&L based on SOL price change
+    pnl_pct = ((exit_price_sol - entry_price_sol) / entry_price_sol) * 100 if entry_price_sol > 0 else 0
+    
+    # SOL P&L based on amount and percentage change
     amount_sol = float(trade["amount_sol"])
     pnl_sol = amount_sol * (pnl_pct / 100)
 
     trade["status"] = "closed"
-    trade["exit_price"] = args.exit_price
+    trade["exit_price_sol"] = exit_price_sol
+    trade["exit_price_usd"] = exit_price_usd
     trade["exit_time"] = _now_iso()
     trade["exit_reason"] = args.reason
     trade["pnl_pct"] = round(pnl_pct, 2)
@@ -141,7 +190,7 @@ def cmd_close(args):
     icon = "✅" if pnl_pct >= 0 else "❌"
     print(f"{icon} Trade #{args.id} closed:")
     print(f"  Token: {trade['token']}")
-    print(f"  Entry: {trade['entry_price']} → Exit: {args.exit_price}")
+    print(f"  Entry: {entry_price_sol:.6f} SOL/token (${entry_price_usd:.6f}) → Exit: {exit_price_sol:.6f} SOL/token (${exit_price_usd:.6f})")
     print(f"  P&L: {pnl_pct:+.2f}% ({pnl_sol:+.6f} SOL)")
     print(f"  Reason: {args.reason}")
 
@@ -184,8 +233,20 @@ def cmd_show(args):
         mode = "PAPER" if t.get("paper") else "REAL"
         token = t["token"][:12]
         amount = f"{float(t['amount_sol']):.4f}"
-        entry = f"{float(t['entry_price']):.8f}"[:12]
-        exit_p = f"{float(t['exit_price']):.8f}"[:12] if t.get("exit_price") else "—"
+        # Use new SOL price fields, fallback to old USD prices if needed
+        entry_sol = t.get("entry_price_sol")
+        if entry_sol is None or entry_sol == "":
+            # Fallback: calculate from old entry_price if it's in USD per token
+            entry_usd = t.get("entry_price", 0)
+            sol_price_usd = _get_sol_price()
+            entry_sol = entry_usd / sol_price_usd if sol_price_usd > 0 else 0
+        entry = f"{float(entry_sol):.8f}"[:12]
+        exit_sol = t.get("exit_price_sol")
+        if exit_sol is None or exit_sol == "":
+            exit_usd = t.get("exit_price", 0)
+            sol_price_usd = _get_sol_price()
+            exit_sol = exit_usd / sol_price_usd if sol_price_usd > 0 else 0
+        exit_p = f"{float(exit_sol):.8f}"[:12] if t.get("exit_price") is not None else "—"
         pnl = f"{t['pnl_pct']:+.1f}%" if t.get("pnl_pct") is not None else "—"
 
         print(f"  {t['id']:>4} {status:>6} {mode:>5} {token:<12} {amount:>8} {entry:>12} {exit_p:>12} {pnl:>8}")
@@ -269,8 +330,6 @@ def cmd_stats(args):
     if losses:
         avg_loss = sum(t.get("pnl_pct", 0) for t in losses) / len(losses)
         print(f"  Avg loss: {avg_loss:+.2f}%")
-
-
 def cmd_export(args):
     """Export trades to CSV."""
     data = _load()
@@ -285,13 +344,32 @@ def cmd_export(args):
         output,
         fieldnames=[
             "id", "status", "paper", "token", "address",
-            "amount_sol", "entry_price", "entry_time", "entry_reason",
-            "exit_price", "exit_time", "exit_reason", "pnl_pct", "pnl_sol",
+            "amount_sol", "entry_price_sol", "entry_price_usd", "entry_time", "entry_reason",
+            "exit_price_sol", "exit_price_usd", "exit_time", "exit_reason", "pnl_pct", "pnl_sol",
         ],
     )
     writer.writeheader()
     for t in trades:
-        writer.writerow(t)
+        # Build row with new field names, falling back to old field names for USD prices if needed
+        row = {
+            "id": t.get("id"),
+            "status": t.get("status"),
+            "paper": t.get("paper"),
+            "token": t.get("token"),
+            "address": t.get("address"),
+            "amount_sol": t.get("amount_sol"),
+            "entry_price_sol": t.get("entry_price_sol", ""),
+            "entry_price_usd": t.get("entry_price_usd", t.get("entry_price", "")),
+            "entry_time": t.get("entry_time"),
+            "entry_reason": t.get("entry_reason"),
+            "exit_price_sol": t.get("exit_price_sol", ""),
+            "exit_price_usd": t.get("exit_price_usd", t.get("exit_price", "")),
+            "exit_time": t.get("exit_time"),
+            "exit_reason": t.get("exit_reason"),
+            "pnl_pct": t.get("pnl_pct"),
+            "pnl_sol": t.get("pnl_sol"),
+        }
+        writer.writerow(row)
 
     csv_path = os.path.expanduser("~/.hermes/memories/trade-journal.csv")
     with open(csv_path, "w") as f:
@@ -300,10 +378,11 @@ def cmd_export(args):
     print(f"📤 Exported {len(trades)} trades to {csv_path}")
 
 
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -316,7 +395,7 @@ def main():
     p_add.add_argument("--token", required=True, help="Token name/symbol")
     p_add.add_argument("--address", required=True, help="Token mint address")
     p_add.add_argument("--amount", type=float, required=True, help="Amount in SOL")
-    p_add.add_argument("--price", type=float, required=True, help="Entry price in USD")
+    p_add.add_argument("--price", type=float, required=True, help="Entry price in USD (SOL price will be calculated automatically)")
     p_add.add_argument("--reason", required=True, help="Why this trade")
     p_add.add_argument("--paper", action="store_true", help="Paper trade (not real)")
     p_add.set_defaults(func=cmd_add)
@@ -348,6 +427,7 @@ def main():
 
     args = parser.parse_args()
     args.func(args)
+
 
 
 if __name__ == "__main__":

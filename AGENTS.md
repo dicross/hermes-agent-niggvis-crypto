@@ -1,3 +1,388 @@
+# AGENTS.md
+
+This file provides guidance to agents when working with code in this repository.
+
+## Key Commands
+- Run tests (hermetic CI environment): `scripts/run_tests.sh` [test_path]
+- Run specific test: `scripts/run_tests.sh tests/agent/test_foo.py::test_x`
+- TUI development (ui-tui): `npm run dev` (watch), `npm run lint`, `npm run fmt`, `npm test`
+- Deploy skills/config: `bash custom-files/install-skills.sh --skills` (from project root)
+- Update cron jobs: `python3 custom-files/setup-cron.py`
+- Start agent CLI: `hermes`
+- Start messaging gateway: `hermes gateway start`
+- Configure agent: `hermes config set <key> <value>`
+- Update agent: `hermes update` (or use package manager for managed installs)
+
+## Code Style & Patterns
+- Python: Use `get_hermes_home()` from `hermes_constants` for all HERMES_HOME paths (never hardcode `~/.hermes`)
+- User-facing paths: Use `display_hermes_home()` for profile-aware paths
+- TUI: Follow TypeScript/React (Ink) patterns in `ui-tui/` directory
+- New tools: Create `tools/your_tool.py` with `registry.register()` and add to `toolsets.py`
+- Configuration: Add to `DEFAULT_CONFIG` in `hermes_cli/config.py` and bump `_config_version`
+- Environment variables: Add to `OPTIONAL_ENV_VARS` in `hermes_cli/config.py` with metadata
+- Skins: Pure YAML in `~/.hermes/skins/`; built-in skins in `_BUILTIN_SKINS` (`skin_engine.py`)
+- Prompt caching: Never alter context mid-conversation, change toolsets, or reload memories
+- Working directory: CLI uses `.`; messaging uses `MESSAGING_CWD` (from `terminal.cwd` in config)
+- Background notifications: Control via `display.background_process_notifications` in config
+- Agent loop: Synchronous in `run_conversation()` (`run_agent.py`)
+- Tool handlers: Must return JSON string; auto-discovered from `tools/*.py`
+- Agent-level tools: Intercepted by `run_agent.py` before `handle_function_call()` (see `todo_tool.py`)
+- Plugins: Skills, context engines, etc. loaded from `~/.hermes/plugins/` or built-in
+
+# Niggvis — Crypto Trading Agent on Solana (Hermes Agent fork)
+ 
+## Project Overview
+ 
+This is a private fork of [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)
+customized as an autonomous crypto trading agent on Solana. Agent name: **Niggvis**.
+Owner: **Damian**. Repo: `dicross/hermes-agent-niggvis-crypto`.
+ 
+The agent runs 24/7 on WSL, executes real on-chain trades via Jupiter API,
+monitors positions with an adaptive guardian, and communicates through Telegram.
+ 
+## Repository Structure
+ 
+```
+custom-files/                          # ALL customization lives here
+├── SOUL.md                            # Agent persona (crypto trader personality)
+├── MEMORY.md                          # Agent knowledge base (tools, APIs, rules)
+├── trading-config.yaml                # Central trading config (→ ~/.hermes/memories/)
+├── setup-cron.py                      # Cron job definitions (token-scan, reports, evaluator)
+├── install-skills.sh                  # Deploys skills + config to ~/.hermes/
+├── docs/
+│   ├── #CHEATSHEET.md                 # CLI commands, skills, cron reference
+│   └── #INSTALLATION.md              # Full setup guide (repos, remotes, deploy)
+└── skills/
+    ├── trade-executor/scripts/
+    │   ├── executor.py                # Buy/sell/portfolio/config-propose (main entry)
+    │   ├── guardian.py                # Price monitor, tiered exits, TUI dashboard
+    │   └── jupiter_swap.py            # Low-level Jupiter on-chain swaps
+    ├── crypto-scanner/scripts/
+    │   └── scanner.py                 # DEXScreener trending/scan/search/metas
+    ├── onchain-analyzer/scripts/
+    │   └── analyzer.py                # Safety score, holders, liquidity analysis
+    ├── risk-manager/scripts/
+    │   └── risk_manager.py            # Risk checks, daily P&L, kill switch
+    └── trade-journal/scripts/
+        ├── journal.py                 # Trade log: show/stats/export/close
+        └── learning.py                # Self-learning: patterns from trade history
+```
+ 
+## Runtime File Locations (on WSL at ~/.hermes/)
+ 
+| File | Path | Purpose |
+|------|------|---------|
+| Trading config | `~/.hermes/memories/trading-config.yaml` | All risk/sizing/filter params |
+| Trade journal | `~/.hermes/memories/trade-journal.json` | Trade history (JSON, not .md!) |
+| Trade learnings | `~/.hermes/memories/trade-learnings.json` | Patterns from learning.py |
+| Risk state | `~/.hermes/memories/risk-state.json` | Kill switch, daily P&L tracking |
+| Config proposals | `~/.hermes/memories/config-proposals.json` | Pending config changes |
+| Wallet keypair | `~/.hermes/secrets/trading-wallet.json` | Solana keypair (NEVER commit) |
+| Gateway config | `~/.hermes/gateway.json` | Telegram bot token + chat_id |
+| Cron jobs | `~/.hermes/cron/jobs.json` | Scheduled job definitions |
+| Pending evals | `~/.hermes/cron/pending-evaluations/<id>.json` | Per-trade LLM eval requests |
+| Guardian log | `~/.hermes/cron/guardian.log` | Guardian alerts log |
+| Guardian lock | `~/.hermes/cron/.guardian.lock` | Prevents duplicate guardian |
+| Buy lock | `~/.hermes/cron/.executor-buy.lock` | Prevents duplicate buys |
+| Skills dir | `~/.hermes/skills/` | Deployed skill scripts |
+| SOUL persona | `~/.hermes/SOUL.md` | Agent personality |
+| MEMORY | `~/.hermes/memories/MEMORY.md` | Agent knowledge base |
+ 
+## Architecture & Data Flow
+ 
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HERMES CRON SCHEDULER                     │
+│  token-scan (15m) │ position-check (30m) │ reports (daily)  │
+│  position-evaluator (paused, triggered by guardian)          │
+└────────┬──────────┬──────────────────────┬──────────────────┘
+         │          │                      │
+         ▼          ▼                      ▼
+┌────────────┐ ┌──────────┐        ┌──────────────┐
+│ executor.py│ │scanner.py│        │ learning.py  │
+│ buy/sell   │ │ trending │        │ patterns     │
+└─────┬──────┘ └──────────┘        └──────────────┘
+      │
+      ├── analyzer.py analyze (safety 0-100)
+      ├── risk_manager.py check (limits, P&L, dups)
+      ├── jupiter_swap.py buy/sell (on-chain)
+      └── journal.py (log trade)
+ 
+┌─────────────────────────────────────────────────────────────┐
+│              GUARDIAN (standalone, no LLM)                    │
+│  Runs in tmux, adaptive interval (idle 30s / active 5s /    │
+│  hot 1s). Batch price fetch rotating DEXScreener ↔ Jupiter. │
+│                                                              │
+│  Each tick:                                                  │
+│  1. Batch fetch prices (all open positions, 1 API call)     │
+│  2. For each position:                                      │
+│     a. Check tiered exits (ratchet SL up, trigger eval)     │
+│     b. Check evaluation timeout → apply default strategy     │
+│     c. Execute exit_strategy (trailing/hold/partial/hard_tp) │
+│     d. Check stop-loss (effective SL = max of all floors)   │
+│  3. Wallet sync (every 5m, if enabled)                      │
+│  4. Render TUI dashboard                                    │
+│  5. Compute adaptive interval for next tick                  │
+│                                                              │
+│  Triggers: position-evaluator cron job on tier crossing      │
+│  Sends: Telegram alerts for SL, TP, trailing, tier, evals   │
+└─────────────────────────────────────────────────────────────┘
+```
+ 
+## Tiered Exit System (replaces flat trailing stops)
+ 
+Config in `trading-config.yaml` → `risk.exit_tiers`:
+ 
+```yaml
+exit_tiers:
+  - trigger_pct: 50       # At +50% profit
+    action: move_sl        # Mechanically move SL floor
+    new_sl_pct: 0          # to break-even (0% = entry price)
+  - trigger_pct: 100      # At +100% profit (2x)
+    action: evaluate       # Move SL + trigger LLM evaluator
+    new_sl_pct: 20         # SL floor at +20% profit minimum
+ 
+default_exit_strategy:     # If evaluator fails/times out (5 min)
+  type: trailing
+  trailing_pct: 25
+  trailing_from_pct: 200
+```
+ 
+LLM evaluator writes one of 4 strategies to journal:
+- **hold** — keep position, set review_at_pct for re-evaluation
+- **trailing** — trailing stop (trailing_pct from trailing_from_pct)
+- **partial_sell** — sell X%, hold rest with new strategy
+- **hard_tp** — sell 100% at specific P&L target
+ 
+Guardian executes strategies mechanically. Evaluator only decides.
+Concurrent evaluations supported: per-trade files in `pending-evaluations/`.
+ 
+## Dump Guard (executor.py buy flow)
+ 
+Three layers of protection before buying:
+1. **Classic drop**: blocks if h24 or h6 ≤ -max_24h_drop_pct (currently 60%)
+2. **Post-pump dump**: calculates implied ATH drop from h24/h6 ratio
+   - Example: h24=+3456%, h6=+60% → drop from peak ~95% → BLOCKED
+3. **Active crash**: blocks if h1 ≤ -(max_24h_drop_pct / 2), i.e. -30%
+ 
+## Multi-Provider Price Rotation (guardian.py)
+ 
+Guardian rotates price providers each tick to avoid rate limits:
+- Tick 1: DEXScreener (300 RPM, provides MC + liquidity)
+- Tick 2: Jupiter Price API (600 RPM, faster, no MC/liquidity)
+- Tick 3: DEXScreener... (cycle)
+- On failure: automatic fallback to the other provider
+- HTTP timeout: 5 seconds (prevents stale-price hangs)
+ 
+## Key Commands (all use full paths on WSL)
+ 
+```bash
+# Trading
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py buy --token <ADDR> --reason "why"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py sell --id <N> --reason "why"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py sell --id <N> --pct 50 --reason "partial"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py portfolio
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose --key <K> --value <V> --reason "why"
+python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-apply --index <N>
+ 
+# Guardian (run in tmux)
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --dry-run
+ 
+# Scanning & Analysis
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py trending --limit 10
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py scan --min-liq 10000
+python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py metas
+python3 ~/.hermes/skills/onchain-analyzer/scripts/analyzer.py analyze <ADDR> --full
+ 
+# Journal & Learning
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py show --status open
+python3 ~/.hermes/skills/trade-journal/scripts/journal.py stats --days 7
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py update
+python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns
+ 
+# Risk
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py status
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py kill --reason "why"
+python3 ~/.hermes/skills/risk-manager/scripts/risk_manager.py resume
+ 
+# Jupiter (low-level)
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py wallet
+python3 ~/.hermes/skills/trade-executor/scripts/jupiter_swap.py balance --token <ADDR>
+```
+ 
+## Current Trading Config (key values)
+ 
+| Parameter | Value | Location |
+|-----------|-------|----------|
+| Mode | `real` | root |
+| Position size | 5% of wallet | `position_sizing.position_pct` |
+| Min trade | 0.015 SOL | `position_sizing.min_trade_sol` |
+| Max trade | 0.5 SOL | `position_sizing.max_trade_sol` |
+| Max positions | 5 | `position_sizing.max_positions` |
+| Stop loss | -30% | `risk.stop_loss_pct` |
+| Tier 1 | +50% → SL to break-even | `risk.exit_tiers[0]` |
+| Tier 2 | +100% → SL +20% + LLM eval | `risk.exit_tiers[1]` |
+| Default strategy | trailing 25% from 200% | `risk.default_exit_strategy` |
+| Eval timeout | 5 min | `risk.evaluation_timeout_minutes` |
+| Daily loss limit | -20% | `risk.daily_loss_limit_pct` |
+| Max 24h drop | 60% | `risk.max_24h_drop_pct` |
+| Min safety score | 60/100 | `filters.min_safety_score` |
+| Min liquidity | $15,000 | `filters.min_liquidity_usd` |
+| Slippage | 500 bps (5%) | `jupiter.slippage_bps` |
+| Guardian idle | 30s | `guardian.interval_idle` |
+| Guardian active | 5s | `guardian.interval_active` |
+| Guardian hot | 1s | `guardian.interval_hot` |
+| Wallet sync | disabled | `guardian.wallet_sync_enabled` |
+| Rebuy cooldown | 240 min | `risk.rebuy_cooldown_minutes` |
+ 
+## Cron Jobs
+ 
+| Job | Schedule | Deliver | Purpose |
+|-----|----------|---------|---------|
+| `token-scan` | every 15m | telegram | Scan trending, auto-buy if passes filters |
+| `position-check` | every 30m | telegram | Backup SL/TP check (guardian is primary) |
+| `trend-analysis` | every 4h | local | Market trend analysis, category tracking |
+| `morning-report` | 08:00 UTC | telegram | Portfolio + risk status + plan |
+| `daily-summary` | 23:00 UTC | telegram | Recap + learning.py + config-propose |
+| `weekly-recap` | Sun 10:00 | telegram | Weekly stats + patterns + config-propose |
+| `position-evaluator` | paused | telegram | LLM evaluator (triggered by guardian) |
+ 
+## Buy Pipeline (executor.py buy)
+ 
+```
+1. Position sizing (auto from wallet balance × position_pct)
+2. Reserve guard (refuse if wallet drops below min_wallet_balance)
+3. Fetch price from DEXScreener (_get_token_info)
+4. Dump guard — 3 checks:
+   a. Classic drop: min(h24, h6) ≤ -60%
+   b. Post-pump dump: implied peak-to-current drop ≥ 60%
+   c. Active crash: h1 ≤ -30%
+5. Safety check — analyzer.py analyze (full 0-100 score, NOT safety which is 45 max)
+6. Risk check — risk_manager.py check (limits, daily P&L, cooldown, duplicates)
+7. Jupiter swap (on-chain, irreversible in real mode)
+8. Log to trade-journal.json
+```
+ 
+IMPORTANT: Do NOT run `analyzer.py safety` manually before buy — it gives max 45/45
+(contract-only) which always gets blocked by min_safety_score: 60. Use `executor.py buy`
+which internally runs the full `analyze` command (0-100 score).
+ 
+## API Endpoints Used
+ 
+| API | Base URL | Rate Limit | Used For |
+|-----|----------|------------|----------|
+| DEXScreener | `api.dexscreener.com` | 300 RPM | Token data, batch prices, trending |
+| Jupiter Swap | `lite-api.jup.ag/swap/v1` | — | On-chain swaps |
+| Jupiter Price | `api.jup.ag/price/v2` | 600 RPM | Batch price fetch (rotation) |
+| Solana RPC | `api.mainnet-beta.solana.com` | rate limited | Balance, token accounts |
+| Birdeye | `public-api.birdeye.so` | public | Token analytics (optional) |
+ 
+DEXScreener batch endpoint: `/tokens/v1/solana/{addr1,addr2,...}` (comma-separated)
+Jupiter Price batch: `/price/v2?ids=addr1,addr2,...`
+Always add `User-Agent` header — Python urllib gets 403 without it.
+ 
+## Environment Details
+ 
+| Detail | Value |
+|--------|-------|
+| Platform | WSL (Ubuntu) on Windows |
+| User | niggvis |
+| Python venv | `~/projects/hermes-agent-niggvis-crypto/.venv/bin/python3` |
+| SSH passphrase | `zorba-mac` |
+| Wallet address | `HKbB4dPBAkdKgB2j2ZcKoand1q6WpCeBHf1MTk4TU89q` |
+| Blockchain | Solana mainnet |
+| Model | NVIDIA NIM `qwen/qwen3-next-80b-a3b-instruct` (40 RPM limit!) |
+| Timezone | Europe/Warsaw |
+| Language | Polish (crypto terms in English) |
+| Git remote | `git@github.com:dicross/hermes-agent-niggvis-crypto.git` |
+ 
+## Critical Rules
+ 
+### Config Changes
+- NEVER edit trading-config.yaml directly — always use `config-propose` → Telegram → Damian approves → `config-apply`
+- NEVER edit Python scripts in `~/.hermes/skills/` at runtime
+- Config changes require human approval via Telegram
+ 
+### Trading Safety
+- NEVER buy without on-chain analysis passing (safety ≥ 60)
+- NEVER exceed max_trade_sol or max_positions
+- NEVER ignore kill switch or daily loss limit
+- Mint authority active → DO NOT BUY
+- Freeze authority active → DO NOT BUY
+- LP unlocked → DO NOT BUY
+- Top holder > 15% → DO NOT BUY
+ 
+### Guardian
+- Runs in tmux session, must survive SSH disconnect
+- File lock prevents duplicate instances
+- No LLM calls — pure API + math for speed
+- Tiered SL only ratchets UP, never down
+- Trailing stop checks PEAK P&L (not current) to decide if activated
+ 
+## Deployment
+ 
+```bash
+# On WSL — deploy changes from repo to ~/.hermes/
+cd ~/projects/hermes-agent-niggvis-crypto
+git pull
+bash custom-files/install-skills.sh --skills   # Deploy skills + config
+python3 custom-files/setup-cron.py              # Update cron jobs
+ 
+# Restart guardian after code changes
+# In tmux: Ctrl+C, then:
+python3 ~/.hermes/skills/trade-executor/scripts/guardian.py --watch
+```
+ 
+## Journal Reset (fresh start)
+ 
+```bash
+echo '{"trades": [], "next_id": 1}' > ~/.hermes/memories/trade-journal.json
+rm -f ~/.hermes/memories/trade-learnings.json
+rm -f ~/.hermes/cron/pending-evaluations/*.json
+rm -f ~/.hermes/cron/.guardian.lock
+rm -f ~/.hermes/cron/.executor-buy.lock
+# Do NOT touch: trading-config.yaml, MEMORY.md, secrets/, risk-state.json
+```
+ 
+## Trade Journal Format
+ 
+```json
+{
+  "trades": [
+    {
+      "id": 1,
+      "status": "open|closed",
+      "token": "SYMBOL",
+      "address": "mint_address",
+      "entry_price": 0.001234,
+      "amount_sol": 0.015,
+      "entry_time": "2026-04-22T12:00:00+02:00",
+      "exit_price": null,
+      "exit_time": null,
+      "exit_reason": null,
+      "pnl_pct": null,
+      "pnl_sol": null,
+      "reason": "why bought",
+      "tiers_triggered": [0],
+      "effective_sl_pct": 0,
+      "peak_pnl_pct": 65.4,
+      "evaluation_pending": false,
+      "evaluation_requested_at": null,
+      "exit_strategy": {
+        "type": "trailing",
+        "trailing_pct": 25,
+        "trailing_from_pct": 200,
+        "sl_pct": 20,
+        "reason": "LLM evaluation reason"
+      }
+    }
+  ],
+  "next_id": 2
+}
+```
+
+
 # Hermes Agent - Development Guide
 
 Instructions for AI coding assistants and developers working on the hermes-agent codebase.

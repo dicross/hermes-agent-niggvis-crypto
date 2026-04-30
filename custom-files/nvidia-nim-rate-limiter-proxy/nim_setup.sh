@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # nim_setup.sh — one-time setup for the NVIDIA NIM Rate Limiter Proxy
 # Works on WSL2 (Ubuntu) and any Linux VPS.
-# Run once, restart VS Code, then: sudo python3 ~/nim_proxy.py
-set -e
+# Run once, restart VS Code, then:
+# sudo python3 $(pwd)/nim_proxy.py
 
-CERT_DIR="$HOME/.nim-proxy"
+set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CERT_DIR="$SCRIPT_DIR/certs"
 CERT_FILE="$CERT_DIR/nim_cert.pem"
 KEY_FILE="$CERT_DIR/nim_key.pem"
 HOSTS_ENTRY="127.0.0.1 integrate.api.nvidia.com"
@@ -91,12 +93,12 @@ fi
 
 echo ""
 echo "+--------------------------------------------------+"
-echo "|   Setup complete!                                |"
+echo "| Setup complete! |"
 echo "+--------------------------------------------------+"
-echo "|  1. source ~/.bashrc  (or restart terminal)      |"
-echo "|  2. Restart VS Code completely                   |"
-echo "|  3. sudo python3 ~/nim_proxy.py                  |"
+echo "| 1. source ~/.bashrc (or restart terminal) |"
+echo "| 2. Restart VS Code completely |"
+echo "| 3. sudo python3 $SCRIPT_DIR/nim_proxy.py |"
 echo "+--------------------------------------------------+"
-echo "|  To undo all changes: bash ~/nim_undo.sh         |"
+echo "| To undo all changes: bash $SCRIPT_DIR/nim_undo.sh |"
 echo "+--------------------------------------------------+"
 echo ""

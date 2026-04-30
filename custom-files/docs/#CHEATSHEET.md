@@ -615,3 +615,11 @@ rm -f ~/.hermes/cron/.executor-buy.lock          # buy lock
 - risk-state.json (chyba że chcesz resetować kill switch)
  
 5. Restart guardian
+
+## LiteLLM
+
+1. Start server
+
+```bash
+litellm --config .config/litellm/litellm-config.yaml
+```

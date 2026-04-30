@@ -249,6 +249,12 @@ def cmd_check(args):
         reasons.append(f"KILL SWITCH active: {cfg.get('kill_reason', 'no reason')}")
         approved = False
 
+    # 1b. Global new positions toggle
+    allow_new = _cfg(cfg_raw, "risk", "allow_new_positions", default=True)
+    if not allow_new:
+        reasons.append("Global toggle 'allow_new_positions' is set to false")
+        approved = False
+
     # 2. Amount limit
     if args.amount > cfg["max_trade_sol"]:
         reasons.append(f"Amount {args.amount} SOL > max {cfg['max_trade_sol']} SOL")
