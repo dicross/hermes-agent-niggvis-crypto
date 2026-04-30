@@ -65,6 +65,31 @@ SOLANA_RPC_DEFAULT = "https://api.mainnet-beta.solana.com"
 
 CONFIG_PATH = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
 KEYPAIR_DEFAULT = os.path.expanduser("~/.hermes/secrets/trading-wallet.json")
+ENV_FILE = os.path.expanduser("~/.hermes/.env")
+
+
+def _load_env_file():
+    """Load ~/.hermes/.env into os.environ (only unset vars)."""
+    if not os.path.exists(ENV_FILE):
+        return
+    try:
+        with open(ENV_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and val and key not in os.environ:
+                    os.environ[key] = val
+    except Exception:
+        pass
+
+
+_load_env_file()
 
 # ---------------------------------------------------------------------------
 # Config loader (minimal YAML parser — avoids external dependency)
@@ -247,25 +272,27 @@ def _rpc_call(method: str, params: list, rpc_url: str | None = None) -> dict | N
     """Solana JSON-RPC call with fallback mechanism."""
     # Determine RPC URL with fallback priority:
     # 1. Explicit parameter
-    # 2. Helius RPC from config (uses HELIUS_API_KEY from env)
-    # 3. Direct environment override
-    # 4. Hardcoded public default
+    # 2. HELIUS_API_KEY env → construct Helius URL
+    # 3. SOLANA_RPC_URL env (direct override)
+    # 4. wallet.rpc_url from config (with env interpolation)
+    # 5. Hardcoded public default
     if rpc_url is not None:
         url = rpc_url
     else:
-        cfg = load_config()
-        # Get RPC URL from config (may contain ${HELIUS_API_KEY} placeholder)
-        configured_rpc = get_cfg(cfg, "wallet", "rpc_url", default=None)
-        # Check for direct environment override
+        helius_key = os.environ.get("HELIUS_API_KEY")
         env_rpc = os.environ.get("SOLANA_RPC_URL")
-        # Use environment override if set, otherwise use config, otherwise default
-        if env_rpc:
+        if helius_key:
+            url = f"https://mainnet.helius-rpc.com/?api-key={helius_key}"
+        elif env_rpc:
             url = env_rpc
-        elif configured_rpc:
-            url = configured_rpc
         else:
-            url = SOLANA_RPC_DEFAULT
-    
+            cfg = load_config()
+            configured_rpc = get_cfg(cfg, "wallet", "rpc_url", default=None)
+            if configured_rpc and isinstance(configured_rpc, str):
+                url = os.path.expandvars(configured_rpc)
+            else:
+                url = SOLANA_RPC_DEFAULT
+
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     return _http_post(url, payload)
 

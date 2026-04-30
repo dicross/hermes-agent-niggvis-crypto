@@ -26,36 +26,59 @@ from datetime import datetime, timezone
 
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 CHAIN = "solana"
+ENV_FILE = os.path.expanduser("~/.hermes/.env")
+
+
+def _load_env_file():
+    """Load ~/.hermes/.env into os.environ (only unset vars)."""
+    if not os.path.exists(ENV_FILE):
+        return
+    try:
+        with open(ENV_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and val and key not in os.environ:
+                    os.environ[key] = val
+    except Exception:
+        pass
+
+
+_load_env_file()
 
 
 def _get_solana_rpc_url() -> str:
     """Get Solana RPC URL with fallback mechanism.
-    
+
     Priority order:
     1. HELIUS_API_KEY environment variable -> construct Helius URL
     2. SOLANA_RPC_URL environment variable (direct override)
-    3. wallet.rpc_url from trading-config.yaml
+    3. wallet.rpc_url from trading-config.yaml (with env var interpolation)
     4. Hardcoded public default
     """
     # 1. Check for Helius API key and construct URL if present
     helius_key = os.environ.get("HELIUS_API_KEY")
     if helius_key:
         return f"https://mainnet.helius-rpc.com/?api-key={helius_key}"
-    
+
     # 2. Direct environment override
     env_rpc = os.environ.get("SOLANA_RPC_URL")
     if env_rpc:
         return env_rpc
-    
+
     # 3. Load from config file
     try:
-        import os
         from pathlib import Path
         config_path = Path.home() / ".hermes" / "memories" / "trading-config.yaml"
         if config_path.exists():
-            import yaml
-            # Try to import yaml, fallback to simple parsing if not available
             try:
+                import yaml
                 with open(config_path) as f:
                     cfg = yaml.safe_load(f)
                 if cfg and isinstance(cfg, dict):
@@ -63,18 +86,17 @@ def _get_solana_rpc_url() -> str:
                     if wallet_cfg and isinstance(wallet_cfg, dict):
                         rpc_url = wallet_cfg.get("rpc_url")
                         if rpc_url and isinstance(rpc_url, str):
-                            return rpc_url
+                            return os.path.expandvars(rpc_url)
             except ImportError:
-                # Fallback to simple parsing if yaml not available
                 with open(config_path) as f:
                     for line in f:
                         if line.strip().startswith("rpc_url:"):
                             rpc_url = line.split(":", 1)[1].strip().strip('"').strip("'")
                             if rpc_url:
-                                return rpc_url
+                                return os.path.expandvars(rpc_url)
     except Exception:
-        pass  # Continue to fallback
-    
+        pass
+
     # 4. Hardcoded public default
     return "https://api.mainnet-beta.solana.com"
 

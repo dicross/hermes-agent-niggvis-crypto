@@ -17,9 +17,11 @@ mode: real
 # =============================================================================
 wallet:
   # Solana RPC endpoint (private RPC recommended for real trading)
-  # Helius RPC endpoint with API key from environment variable
+  # Supports ${ENV_VAR} interpolation — scripts auto-load ~/.hermes/.env
+  # Format for Helius: https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
+  # Or set HELIUS_API_KEY in .env and scripts construct the URL automatically.
   rpc_url: "https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}"
-  # Fallback to public RPC if Helius is not configured
+  # Fallback: if HELIUS_API_KEY is not set, scripts fall back to public RPC
   # fallback_rpc_url: "https://api.mainnet-beta.solana.com"
   # Path to keypair file (base58 or JSON array format)
   # SECURITY: use a DEDICATED wallet, never your main wallet

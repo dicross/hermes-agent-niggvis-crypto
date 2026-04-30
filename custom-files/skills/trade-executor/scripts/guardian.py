@@ -56,32 +56,60 @@ SOLANA_MAINNET_RPC = "https://api.mainnet-beta.solana.com"
 SKILLS_DIR = os.path.expanduser("~/.hermes/skills")
 PENDING_EVALUATION_DIR = os.path.expanduser("~/.hermes/cron/pending-evaluations")
 CRON_JOBS_PATH = os.path.expanduser("~/.hermes/cron/jobs.json")
+ENV_FILE = os.path.expanduser("~/.hermes/.env")
+
+
+def _load_env_file():
+    """Load environment variables from ~/.hermes/.env if not already set.
+
+    This ensures scripts work identically whether run manually or via systemd
+    (which uses EnvironmentFile). Only sets vars that are not already in env.
+    """
+    if not os.path.exists(ENV_FILE):
+        return
+    try:
+        with open(ENV_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and val and key not in os.environ:
+                    os.environ[key] = val
+    except Exception:
+        pass
+
+
+_load_env_file()
 
 
 def _get_solana_rpc_url() -> str:
     """Get Solana RPC URL with fallback mechanism.
-    
+
     Priority order:
     1. HELIUS_API_KEY environment variable -> construct Helius URL
     2. SOLANA_RPC_URL environment variable (direct override)
-    3. wallet.rpc_url from trading-config.yaml
+    3. wallet.rpc_url from trading-config.yaml (with env var interpolation)
     4. Hardcoded public default
     """
     # 1. Check for Helius API key and construct URL if present
     helius_key = os.environ.get("HELIUS_API_KEY")
     if helius_key:
-        return f"https://mainnet.helius-rpc.com/?key={helius_key}"
-    
+        return f"https://mainnet.helius-rpc.com/?api-key={helius_key}"
+
     # 2. Direct environment override
     env_rpc = os.environ.get("SOLANA_RPC_URL")
     if env_rpc:
         return env_rpc
-    
+
     # 3. Load from config file
     try:
         config_path = os.path.expanduser("~/.hermes/memories/trading-config.yaml")
         if os.path.exists(config_path):
-            # Try to import yaml, fallback to simple parsing if not available
             try:
                 import yaml
                 with open(config_path) as f:
@@ -91,18 +119,17 @@ def _get_solana_rpc_url() -> str:
                     if wallet_cfg and isinstance(wallet_cfg, dict):
                         rpc_url = wallet_cfg.get("rpc_url")
                         if rpc_url and isinstance(rpc_url, str):
-                            return rpc_url
+                            return os.path.expandvars(rpc_url)
             except ImportError:
-                # Fallback to simple parsing if yaml not available
                 with open(config_path) as f:
                     for line in f:
                         if line.strip().startswith("rpc_url:"):
                             rpc_url = line.split(":", 1)[1].strip().strip('"').strip("'")
                             if rpc_url:
-                                return rpc_url
+                                return os.path.expandvars(rpc_url)
     except Exception:
-        pass  # Continue to fallback
-    
+        pass
+
     # 4. Hardcoded public default
     return SOLANA_MAINNET_RPC
 
