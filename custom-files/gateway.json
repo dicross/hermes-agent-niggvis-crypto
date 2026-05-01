@@ -1,0 +1,11 @@
+{
+    "platforms": {
+        "telegram": {
+            "token": "8606949645:AAGzK3JA9tVFTa_jqnm7ezj4AY5Osqeypeg",
+            "home_channel": {
+                "platform": "telegram",
+                "chat_id": "5465931080"
+            }
+        }
+    }
+}

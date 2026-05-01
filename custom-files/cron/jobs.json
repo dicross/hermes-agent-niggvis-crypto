@@ -1,0 +1,304 @@
+{
+  "jobs": [
+    {
+      "id": "36cac1573e00",
+      "name": "token-scan",
+      "prompt": "Scan for new trending Solana tokens. Use crypto-scanner trending --limit 10. For promising tokens with liquidity > $10k, go straight to executor.py buy (it runs full analyze + risk check internally). Do NOT run analyzer.py safety manually. Position size is auto-calculated from config. RESPONSE RULES: - If you executed a BUY: report token name, safety score, amount, price, tx link. - If NO buy was made (no candidates, all blocked, insufficient balance): respond [SILENT]",
+      "skills": [
+        "crypto-scanner",
+        "onchain-analyzer",
+        "trade-executor",
+        "risk-manager",
+        "trade-journal"
+      ],
+      "skill": "crypto-scanner",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 20,
+        "display": "every 20m"
+      },
+      "schedule_display": "every 20m",
+      "repeat": {
+        "times": null,
+        "completed": 218
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-19T21:57:42.792814+00:00",
+      "next_run_at": "2026-05-01T00:45:54.735712+02:00",
+      "last_run_at": "2026-05-01T00:25:54.735712+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "telegram",
+      "origin": null
+    },
+    {
+      "id": "ddb1dd8f4608",
+      "name": "position-check",
+      "prompt": "Check all open positions for exit signals. Use trade-executor check-exits. If any stop-loss or trailing stop is triggered, execute the sell immediately. RESPONSE RULES: - If you executed a SELL (SL/TP/trailing triggered): report token, entry/exit price, P&L%, reason, tx link. - If a position moved more than 50% since last check (up or down): report the alert. - If NO sells and no big moves: respond [SILENT]",
+      "skills": [
+        "trade-executor",
+        "trade-journal",
+        "crypto-scanner"
+      ],
+      "skill": "trade-executor",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 60,
+        "display": "every 60m"
+      },
+      "schedule_display": "every 60m",
+      "repeat": {
+        "times": null,
+        "completed": 85
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-19T21:57:42.792970+00:00",
+      "next_run_at": "2026-05-01T01:02:20.167298+02:00",
+      "last_run_at": "2026-04-30T15:00:12.870482+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "telegram",
+      "origin": null
+    },
+    {
+      "id": "464481e5aba5",
+      "name": "trend-analysis",
+      "prompt": "Run a market trend analysis. Use crypto-scanner metas to check trending categories. Then crypto-scanner trending --limit 20 for top movers. Identify which categories are hot (AI, meme, gaming, DeFi). Compare with our open positions - are we aligned with trends? Write a brief trend report (5 lines max).",
+      "skills": [
+        "crypto-scanner",
+        "trade-journal"
+      ],
+      "skill": "crypto-scanner",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 240,
+        "display": "every 240m"
+      },
+      "schedule_display": "every 240m",
+      "repeat": {
+        "times": null,
+        "completed": 16
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-19T21:57:42.793026+00:00",
+      "next_run_at": "2026-05-01T00:57:01.332275+02:00",
+      "last_run_at": "2026-04-30T14:36:20.678695+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "local",
+      "origin": null
+    },
+    {
+      "id": "9084c82e64f4",
+      "name": "morning-report",
+      "prompt": "Morning portfolio report. Run trade-executor portfolio, risk-manager status, trade-journal stats --days 1. Summarize in 5-8 lines: open positions, P&L, wallet balance, risk status, plan for today.",
+      "skills": [
+        "trade-executor",
+        "risk-manager",
+        "trade-journal"
+      ],
+      "skill": "trade-executor",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 8 * * *",
+        "display": "0 8 * * *"
+      },
+      "schedule_display": "0 8 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 4
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-19T21:57:42.793081+00:00",
+      "next_run_at": "2026-05-01T08:00:00+02:00",
+      "last_run_at": "2026-04-28T08:05:01.690848+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "telegram",
+      "origin": null
+    },
+    {
+      "id": "adc1d2ce9396",
+      "name": "position-evaluator",
+      "prompt": "You are the Position Evaluator. Guardian triggered you because a position crossed an evaluation tier.\n\nStep 1: List files in ~/.hermes/cron/pending-evaluations/ to find pending trade(s).\n  Each file is named <trade_id>.json and contains: trade_id, token, address, entry_price.\n  Process ALL pending files (there may be multiple concurrent evaluations).\n  For each pending file:\n\nStep 2: Read trade-journal to find that trade (token address, entry price, current P&L, amount, time held).\nStep 3: Fetch fresh token data from DEXScreener:\n  python3 ~/.hermes/skills/crypto-scanner/scripts/scanner.py info <TOKEN_ADDRESS>\nStep 4: Analyze the position. Consider:\n  - Price momentum (1h, 6h, 24h changes)\n  - Buy/sell ratio (are buyers dominant?)\n  - Volume relative to market cap (healthy trading activity?)\n  - Liquidity depth (enough to exit safely?)\n  - Is this organic growth or a pump that will dump?\n  - How long has the position been held?\n  - Market context (is the whole market up or just this token?)\n\nStep 5: Decide ONE of these strategies:\n  a) HOLD \u2014 momentum is strong, keep riding. Set review_at_pct (when to re-evaluate).\n  b) TRAILING \u2014 set trailing stop. Specify trailing_pct and trailing_from_pct.\n  c) PARTIAL_SELL \u2014 sell a portion (e.g. 50%). Specify sell_pct and remaining strategy.\n  d) HARD_TP \u2014 set hard take-profit at a specific %.\n\nStep 6: Write exit_strategy to the trade in journal. Use this exact Python command:\n  python3 -c \"\nimport json, os\nj = json.load(open(os.path.expanduser('~/.hermes/memories/trade-journal.json')))\nfor t in j['trades']:\n  if t['id'] == TRADE_ID and t['status'] == 'open':\n    t['exit_strategy'] = {\n      'type': 'hold|trailing|partial_sell|hard_tp',\n      'trailing_pct': 25,\n      'trailing_from_pct': 200,\n      'sell_pct': 50,\n      'hard_tp_pct': 300,\n      'review_at_pct': 300,\n      'sl_pct': 20,\n      'reason': 'Your reasoning here'\n    }\n    t['evaluation_pending'] = False\n    break\njson.dump(j, open(os.path.expanduser('~/.hermes/memories/trade-journal.json'), 'w'), indent=2)\n\"\n  (Fill in only the fields relevant to your chosen strategy.)\n\nStep 7: Delete the pending file after processing:\n  rm ~/.hermes/cron/pending-evaluations/<trade_id>.json\n\nStep 8: Report your decision.\n  Read evaluation_detail from trading-config.yaml notifications section.\n  If 'full': explain your reasoning in 5-10 lines.\n  If 'short': one-line summary like 'HOLD #25 ADHD \u2014 strong momentum, review at 300%'.\n  If notifications.on_evaluation_complete is false: respond [SILENT].\n\nIMPORTANT:\n- Do NOT execute sells yourself. Only write strategy to journal. Guardian sells.\n- For partial_sell: write the sell_pct. Guardian will execute the partial sell.\n- Always set sl_pct (minimum stop-loss floor as % profit from entry).\n- Process ALL pending files in one session, not just the first one.\n- If you cannot fetch data or analyze: write default strategy from config (risk.default_exit_strategy) and note the failure reason.",
+      "skills": [
+        "trade-executor",
+        "trade-journal",
+        "risk-manager",
+        "crypto-scanner",
+        "onchain-analyzer"
+      ],
+      "skill": "trade-executor",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 9999,
+        "display": "every 9999m"
+      },
+      "schedule_display": "every 9999m",
+      "repeat": {
+        "times": null,
+        "completed": 1
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-22T20:34:43.693587+00:00",
+      "next_run_at": "2026-05-06T22:50:51.702717+02:00",
+      "last_run_at": "2026-04-30T00:11:51.702717+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "telegram",
+      "origin": null
+    },
+    {
+      "id": "63ecade3fd2b",
+      "name": "daily-summary",
+      "prompt": "End of day trading summary with self-learning. Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update` to analyze trades. Step 2: Run trade-journal stats --days 1. Step 3: Check trade-executor portfolio. Step 4: Run risk-manager status. Step 5: Write a daily recap in 8-10 lines: trades, P&L, lessons learned, what to watch tomorrow. Step 6: If you see a pattern that suggests a config change (e.g. too many losses \u2192 lower position size, SL too tight/loose, etc.), you MUST actually run the config-propose command \u2014 do NOT just mention it:\n  python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose --key <KEY> --value <VALUE> --reason \"<REASON>\"\nExample keys: position_pct, stop_loss_pct, min_safety_score, min_liquidity_usd, slippage_bps.\nIf no pattern warrants a change, skip this step. IMPORTANT: Do NOT just write 'suggest config change' or 'propose via config-propose' \u2014 you must actually execute the command. The proposal will be sent to Damian for approval.",
+      "skills": [
+        "trade-journal",
+        "trade-executor",
+        "risk-manager",
+        "crypto-scanner"
+      ],
+      "skill": "trade-journal",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 23 * * *",
+        "display": "0 23 * * *"
+      },
+      "schedule_display": "0 23 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 5
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-22T21:24:45.245677+00:00",
+      "next_run_at": "2026-05-01T23:00:00+02:00",
+      "last_run_at": "2026-05-01T00:02:55.492368+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "telegram",
+      "origin": null
+    },
+    {
+      "id": "a5dd878d2ba3",
+      "name": "weekly-recap",
+      "prompt": "Weekly trading recap. Step 1: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py update --days 7`. Step 2: Run `python3 ~/.hermes/skills/trade-journal/scripts/learning.py patterns`. Step 3: Run trade-journal stats --days 7. Step 4: Analyze: total P&L, win rate, best/worst trades, which signals worked. Step 5: Based on patterns, if a config change is warranted, EXECUTE this command:\n  python3 ~/.hermes/skills/trade-executor/scripts/executor.py config-propose --key <KEY> --value <VALUE> --reason \"<REASON>\"\nDo NOT just write 'suggest X' \u2014 actually run config-propose. The proposal will be sent to Damian for approval. Keep report to 10-15 lines.",
+      "skills": [
+        "trade-journal",
+        "trade-executor",
+        "risk-manager",
+        "crypto-scanner"
+      ],
+      "skill": "trade-journal",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 10 * * 0",
+        "display": "0 10 * * 0"
+      },
+      "schedule_display": "0 10 * * 0",
+      "repeat": {
+        "times": null,
+        "completed": 1
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-22T21:24:45.245822+00:00",
+      "next_run_at": "2026-05-03T10:00:00+02:00",
+      "last_run_at": "2026-04-22T23:29:51.854356+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "telegram",
+      "origin": null
+    },
+    {
+      "id": "5525ef3ffbc7",
+      "name": "position-evaluator",
+      "prompt": "Run position evaluation for open positions. Processes pending evaluation files from Guardian, retrieves current token data, and updates trade journal with exit strategies.",
+      "skills": [
+        "position-evaluator"
+      ],
+      "skill": "position-evaluator",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 5,
+        "display": "every 5m"
+      },
+      "schedule_display": "every 5m",
+      "repeat": {
+        "times": null,
+        "completed": 13
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-04-30T00:15:17.476270+02:00",
+      "next_run_at": "2026-05-01T00:28:06.241242+02:00",
+      "last_run_at": "2026-05-01T00:23:06.241242+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "local",
+      "origin": null
+    }
+  ],
+  "updated_at": "2026-05-01T00:25:54.736028+02:00"
+}
