@@ -80,19 +80,19 @@ echo ""
 # --- Core files (only in full mode) ---
 if [[ "$MODE" == "full" ]]; then
     echo "🧠 Core files:"
- 
+
     # SOUL.md — agent personality
     if [[ -f "$SCRIPT_DIR/SOUL.md" ]]; then
         cp "$SCRIPT_DIR/SOUL.md" "$HERMES_DIR/SOUL.md"
         echo "  → SOUL.md (overwritten)"
     fi
- 
+
     # MEMORY.md — knowledge base
     if [[ -f "$SCRIPT_DIR/MEMORY.md" ]]; then
         cp "$SCRIPT_DIR/MEMORY.md" "$HERMES_DIR/memories/MEMORY.md"
         echo "  → MEMORY.md (overwritten)"
     fi
- 
+
     echo ""
 else
     echo "🧠 Core files: SKIPPED (preserving agent learning)"
@@ -111,46 +111,59 @@ fi
 # --- Config (full + skills + config modes) ---
 if [[ "$MODE" != "skip" ]]; then
     echo "⚙️ Config:"
- 
+
     # trading-config.yaml — always update (agent proposes changes via Telegram anyway)
     if [[ -f "$SCRIPT_DIR/trading-config.yaml" ]]; then
         cp "$SCRIPT_DIR/trading-config.yaml" "$HERMES_DIR/memories/trading-config.yaml"
         echo "  → trading-config.yaml (updated)"
     fi
- 
+
     # .env — only if not exists (contains secrets)
     if [[ -f "$SCRIPT_DIR/.env.example" && ! -f "$HERMES_DIR/.env" ]]; then
         cp "$SCRIPT_DIR/.env.example" "$HERMES_DIR/.env"
         echo "  → .env (created from template — EDIT WITH YOUR KEYS)"
     fi
- 
+
     # config.yaml — only if not exists (user may have customized)
     if [[ -f "$SCRIPT_DIR/config.example.yaml" && ! -f "$HERMES_DIR/config.yaml" ]]; then
         cp "$SCRIPT_DIR/config.example.yaml" "$HERMES_DIR/config.yaml"
         echo "  → config.yaml (created from template)"
     fi
- 
+
+    # gateway.json — always update (contains chat routing config)
+    if [[ -f "$SCRIPT_DIR/gateway.json" ]]; then
+        cp "$SCRIPT_DIR/gateway.json" "$HERMES_DIR/gateway.json"
+        echo "  → gateway.json (updated — chat routing: agent/cron/guardian)"
+    fi
+
+    # cron/jobs.json — always update (deliver targets point to split chats)
+    if [[ -f "$SCRIPT_DIR/cron/jobs.json" ]]; then
+        mkdir -p "$HERMES_DIR/cron"
+        cp "$SCRIPT_DIR/cron/jobs.json" "$HERMES_DIR/cron/jobs.json"
+        echo "  → cron/jobs.json (updated — deliver targets)"
+    fi
+
     echo ""
 fi
 
 # --- Skills (full + skills modes) ---
 if [[ "$MODE" == "full" || "$MODE" == "skills" ]]; then
     echo "🔧 Skills:"
- 
+
     for skill_dir in "$SKILLS_SRC"/*/; do
         skill_name="$(basename "$skill_dir")"
         echo "  → $skill_name"
         rm -rf "${SKILLS_DST:?}/$skill_name"
         cp -r "$skill_dir" "$SKILLS_DST/$skill_name"
     done
- 
+
     # Also install Solana blockchain skill from optional-skills if available
     SOLANA_SRC="$SCRIPT_DIR/../optional-skills/blockchain/solana"
     if [[ -d "$SOLANA_SRC" && ! -d "$SKILLS_DST/solana" ]]; then
         echo "  → solana (from optional-skills)"
         cp -r "$SOLANA_SRC" "$SKILLS_DST/solana"
     fi
- 
+
     echo ""
 fi
 

@@ -5,6 +5,11 @@
             "home_channel": {
                 "platform": "telegram",
                 "chat_id": "5465931080"
+            },
+            "chats": {
+                "agent": "5465931080",
+                "cron": "-5137217844",
+                "guardian": "-5101540743"
             }
         }
     }

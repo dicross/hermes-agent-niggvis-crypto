@@ -528,12 +528,18 @@ def _get_sol_balance(pubkey: str, rpc_url: str) -> float:
 
 _telegram_bot_token: str | None = None
 _telegram_chat_id: str | None = None
+_telegram_guardian_chat_id: str | None = None
 _telegram_loaded: bool = False
 
 
 def _load_telegram_config():
-    """Load Telegram bot token and home chat_id from gateway or hermes config."""
-    global _telegram_bot_token, _telegram_chat_id, _telegram_loaded
+    """Load Telegram bot token and chat IDs from gateway or hermes config.
+
+    Supports split-chat routing: if gateway.json contains
+    platforms.telegram.chats.guardian, Guardian alerts go to that chat.
+    Otherwise falls back to home_channel (backward compatible).
+    """
+    global _telegram_bot_token, _telegram_chat_id, _telegram_guardian_chat_id, _telegram_loaded
     if _telegram_loaded:
         return
     _telegram_loaded = True
@@ -555,6 +561,10 @@ def _load_telegram_config():
         hc = tg.get("home_channel", {})
         if isinstance(hc, dict):
             _telegram_chat_id = str(hc.get("chat_id", ""))
+        # Split-chat routing: guardian-specific chat_id
+        chats = tg.get("chats", {})
+        if isinstance(chats, dict) and chats.get("guardian"):
+            _telegram_guardian_chat_id = str(chats["guardian"])
 
     # Fallback: hermes config.yaml (platforms.telegram.token / home_channel.chat_id)
     if not _telegram_bot_token or not _telegram_chat_id:
@@ -570,8 +580,20 @@ def _load_telegram_config():
             except Exception:
                 pass
 
+    # Environment variable override for guardian chat_id
+    env_guardian = os.environ.get("TELEGRAM_GUARDIAN_CHAT_ID", "").strip()
+    if env_guardian:
+        _telegram_guardian_chat_id = env_guardian
+
+    # Fall back: if no dedicated guardian chat, use home_channel
+    if not _telegram_guardian_chat_id:
+        _telegram_guardian_chat_id = _telegram_chat_id
+
     if _telegram_bot_token and _telegram_chat_id:
-        log("Telegram: configured ✅")
+        if _telegram_guardian_chat_id and _telegram_guardian_chat_id != _telegram_chat_id:
+            log(f"Telegram: configured ✅ (guardian → {_telegram_guardian_chat_id})")
+        else:
+            log("Telegram: configured ✅")
     else:
         log("Telegram: NOT configured (no bot token / chat_id in gateway.json or config.yaml)")
 
@@ -586,7 +608,11 @@ def _is_notification_enabled(event_key: str) -> bool:
 
 
 def notify_telegram(message: str, event: str = None):
-    """Send a notification to the home Telegram chat. Non-blocking, best-effort.
+    """Send a Guardian notification to the dedicated Telegram chat. Non-blocking, best-effort.
+
+    Uses the guardian-specific chat_id (from gateway.json chats.guardian or
+    TELEGRAM_GUARDIAN_CHAT_ID env var). Falls back to home_channel if no
+    dedicated guardian chat is configured.
 
     event: optional notification key (e.g. 'on_stop_loss'). If set and disabled
            in trading-config.yaml, the message is silently dropped.
@@ -594,11 +620,11 @@ def notify_telegram(message: str, event: str = None):
     if event and not _is_notification_enabled(event):
         return
     _load_telegram_config()
-    if not _telegram_bot_token or not _telegram_chat_id:
+    if not _telegram_bot_token or not _telegram_guardian_chat_id:
         return
     url = f"https://api.telegram.org/bot{_telegram_bot_token}/sendMessage"
     result = _http_post(url, {
-        "chat_id": _telegram_chat_id,
+        "chat_id": _telegram_guardian_chat_id,
         "text": message,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True,
